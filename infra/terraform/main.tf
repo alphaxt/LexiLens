@@ -106,10 +106,18 @@ resource "aws_s3_bucket_policy" "quarantine_tls" {
 
 resource "aws_security_group" "api" {
   name_prefix = "${local.name}-api-"
-  description = "LexiLens API; ingress is intentionally supplied by a separately reviewed edge module."
+  description = "LexiLens API accepts application traffic only from the internal API ALB."
   vpc_id      = data.aws_vpc.selected.id
   tags        = local.tags
   depends_on  = [terraform_data.deployment_guard]
+
+  ingress {
+    description     = "HTTP from internal API ALB only"
+    from_port       = 4000
+    to_port         = 4000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.api_alb.id]
+  }
 }
 
 resource "aws_security_group" "worker" {
@@ -122,17 +130,17 @@ resource "aws_security_group" "worker" {
 
 resource "aws_security_group" "scanner" {
   name_prefix = "${local.name}-scanner-"
-  description = "Approved scanner facade accepts HTTPS only from API and worker tasks."
+  description = "Scanner facade accepts HTTPS only from its internal scanner ALB."
   vpc_id      = data.aws_vpc.selected.id
   tags        = local.tags
   depends_on  = [terraform_data.deployment_guard]
 
   ingress {
-    description     = "HTTPS from API and maintenance worker"
+    description     = "HTTPS from internal scanner ALB only"
     from_port       = 443
     to_port         = 443
     protocol        = "tcp"
-    security_groups = [aws_security_group.api.id, aws_security_group.worker.id]
+    security_groups = [aws_security_group.scanner_alb.id]
   }
 }
 
@@ -336,7 +344,7 @@ resource "aws_secretsmanager_secret" "runtime" {
 resource "aws_secretsmanager_secret_version" "runtime" {
   secret_id = aws_secretsmanager_secret.runtime.id
   secret_string = jsonencode({
-    SCANNER_ENDPOINT = var.scanner_endpoint
+    SCANNER_ENDPOINT = "https://${trimsuffix(aws_route53_record.scanner.fqdn, ".")}/scan"
     SCANNER_VERSION  = var.scanner_version
     OIDC_ISSUER_URL  = var.oidc_issuer_url
     OIDC_JWKS_URI    = var.oidc_jwks_uri
@@ -370,8 +378,8 @@ resource "aws_iam_role_policy" "api_storage" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.quarantine.arn },
-      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${aws_s3_bucket.quarantine.arn}/*" },
+      { Effect = "Allow", Action = ["s3:ListBucketVersions"], Resource = aws_s3_bucket.quarantine.arn },
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObjectVersion"], Resource = "${aws_s3_bucket.quarantine.arn}/*" },
       { Effect = "Allow", Action = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"], Resource = aws_kms_key.data.arn },
     ]
   })
@@ -383,9 +391,8 @@ resource "aws_iam_role_policy" "worker_storage" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.quarantine.arn },
-      { Effect = "Allow", Action = ["s3:GetObject", "s3:DeleteObject"], Resource = "${aws_s3_bucket.quarantine.arn}/*" },
-      { Effect = "Allow", Action = ["kms:Decrypt"], Resource = aws_kms_key.data.arn },
+      { Effect = "Allow", Action = ["s3:ListBucketVersions"], Resource = aws_s3_bucket.quarantine.arn },
+      { Effect = "Allow", Action = ["s3:DeleteObjectVersion"], Resource = "${aws_s3_bucket.quarantine.arn}/*" },
     ]
   })
 }
@@ -482,8 +489,13 @@ resource "aws_ecs_service" "api" {
     security_groups  = [aws_security_group.api.id]
     assign_public_ip = false
   }
+  load_balancer {
+    target_group_arn = aws_lb_target_group.api.arn
+    container_name   = "api"
+    container_port   = 4000
+  }
   tags       = local.tags
-  depends_on = [terraform_data.deployment_guard]
+  depends_on = [terraform_data.deployment_guard, aws_lb_listener.api_https]
 }
 
 resource "aws_ecs_service" "scanner" {
@@ -497,8 +509,13 @@ resource "aws_ecs_service" "scanner" {
     security_groups  = [aws_security_group.scanner.id]
     assign_public_ip = false
   }
+  load_balancer {
+    target_group_arn = aws_lb_target_group.scanner.arn
+    container_name   = "approved-scanner-facade"
+    container_port   = 443
+  }
   tags       = local.tags
-  depends_on = [terraform_data.deployment_guard]
+  depends_on = [terraform_data.deployment_guard, aws_lb_listener.scanner_https]
 }
 
 resource "aws_cloudwatch_event_rule" "maintenance" {

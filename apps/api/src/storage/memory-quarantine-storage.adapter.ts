@@ -19,6 +19,7 @@ export class MemoryQuarantineStorageAdapter implements QuarantineStoragePort {
     if (value.length > maxBytes) throw new Error('Private object exceeds bounded read limit.');
     return Buffer.from(value);
   }
+  /** The in-memory backend has one retained representation per opaque key. */
   async delete(key: string) {
     this.assertKey(key);
     this.objects.delete(key);

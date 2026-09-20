@@ -53,7 +53,11 @@ describe('CleanupReconcilerService', () => {
     };
     await expect(
       new CleanupReconcilerService(repository, failing).reconcile(),
-    ).resolves.toMatchObject({ failed: 1 });
+    ).resolves.toMatchObject({ failed: 1, deleted: 0 });
     await expect(repository.findDocument(owner, document.id)).resolves.toBeUndefined();
+    expect(storage.objects.get(document.key)).toEqual(Buffer.from('test'));
+    const documents = (repository as unknown as { documents: Map<string, { status: string }> })
+      .documents;
+    expect(documents.get(document.id)?.status).toBe('DELETE_PENDING');
   });
 });

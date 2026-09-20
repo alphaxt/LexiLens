@@ -4,5 +4,6 @@ export const QUARANTINE_STORAGE_PORT = Symbol('QUARANTINE_STORAGE_PORT');
 export interface QuarantineStoragePort {
   put(key: string, stream: Readable): Promise<void>;
   read(key: string, maxBytes: number): Promise<Buffer>;
+  /** Erases every retained representation of an opaque object before resolving. */
   delete(key: string): Promise<void>;
 }
