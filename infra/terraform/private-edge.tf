@@ -1,7 +1,9 @@
 # Internal-only TLS ingress. These resources make service reachability explicit without public DNS or CDN delivery.
+# Every managed resource is gated by the explicit deployment acknowledgement.
 data "aws_route53_zone" "private" {
   zone_id      = var.private_hosted_zone_id
   private_zone = true
+  depends_on   = [terraform_data.deployment_guard]
 }
 
 resource "aws_security_group" "api_alb" {
@@ -10,6 +12,7 @@ resource "aws_security_group" "api_alb" {
   vpc_id      = data.aws_vpc.selected.id
   tags        = local.tags
   egress      = []
+  depends_on  = [terraform_data.deployment_guard]
 
   ingress {
     description = "Approved private API clients"
@@ -26,6 +29,7 @@ resource "aws_security_group" "scanner_alb" {
   vpc_id      = data.aws_vpc.selected.id
   tags        = local.tags
   egress      = []
+  depends_on  = [terraform_data.deployment_guard]
 
   ingress {
     description     = "HTTPS from API and maintenance worker"
@@ -43,6 +47,7 @@ resource "aws_vpc_security_group_egress_rule" "api_alb_to_api" {
   from_port                    = 4000
   to_port                      = 4000
   ip_protocol                  = "tcp"
+  depends_on                   = [terraform_data.deployment_guard]
 }
 
 resource "aws_vpc_security_group_egress_rule" "scanner_alb_to_scanner" {
@@ -52,6 +57,7 @@ resource "aws_vpc_security_group_egress_rule" "scanner_alb_to_scanner" {
   from_port                    = 443
   to_port                      = 443
   ip_protocol                  = "tcp"
+  depends_on                   = [terraform_data.deployment_guard]
 }
 
 resource "aws_lb" "api" {
@@ -62,6 +68,7 @@ resource "aws_lb" "api" {
   subnets            = var.private_subnet_ids
   idle_timeout       = 60
   tags               = local.tags
+  depends_on         = [terraform_data.deployment_guard]
 }
 
 resource "aws_lb_target_group" "api" {
@@ -70,6 +77,8 @@ resource "aws_lb_target_group" "api" {
   protocol    = "HTTP"
   target_type = "ip"
   vpc_id      = data.aws_vpc.selected.id
+  depends_on  = [terraform_data.deployment_guard]
+
   health_check {
     enabled             = true
     protocol            = "HTTP"
@@ -80,6 +89,7 @@ resource "aws_lb_target_group" "api" {
     timeout             = 5
     interval            = 30
   }
+
   tags = local.tags
 }
 
@@ -89,6 +99,8 @@ resource "aws_lb_listener" "api_https" {
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
   certificate_arn   = var.api_acm_certificate_arn
+  depends_on        = [terraform_data.deployment_guard]
+
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
@@ -98,12 +110,15 @@ resource "aws_lb_listener" "api_https" {
 resource "aws_wafv2_web_acl_association" "api" {
   resource_arn = aws_lb.api.arn
   web_acl_arn  = var.api_waf_web_acl_arn
+  depends_on   = [terraform_data.deployment_guard]
 }
 
 resource "aws_route53_record" "api" {
-  zone_id = data.aws_route53_zone.private.zone_id
-  name    = var.api_private_dns_name
-  type    = "A"
+  zone_id    = data.aws_route53_zone.private.zone_id
+  name       = var.api_private_dns_name
+  type       = "A"
+  depends_on = [terraform_data.deployment_guard]
+
   alias {
     name                   = aws_lb.api.dns_name
     zone_id                = aws_lb.api.zone_id
@@ -119,6 +134,7 @@ resource "aws_lb" "scanner" {
   subnets            = var.private_subnet_ids
   idle_timeout       = 60
   tags               = local.tags
+  depends_on         = [terraform_data.deployment_guard]
 }
 
 resource "aws_lb_target_group" "scanner" {
@@ -127,6 +143,8 @@ resource "aws_lb_target_group" "scanner" {
   protocol    = "HTTPS"
   target_type = "ip"
   vpc_id      = data.aws_vpc.selected.id
+  depends_on  = [terraform_data.deployment_guard]
+
   health_check {
     enabled             = true
     protocol            = "HTTPS"
@@ -137,6 +155,7 @@ resource "aws_lb_target_group" "scanner" {
     timeout             = 5
     interval            = 30
   }
+
   tags = local.tags
 }
 
@@ -146,6 +165,8 @@ resource "aws_lb_listener" "scanner_https" {
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
   certificate_arn   = var.scanner_acm_certificate_arn
+  depends_on        = [terraform_data.deployment_guard]
+
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.scanner.arn
@@ -153,9 +174,11 @@ resource "aws_lb_listener" "scanner_https" {
 }
 
 resource "aws_route53_record" "scanner" {
-  zone_id = data.aws_route53_zone.private.zone_id
-  name    = var.scanner_private_dns_name
-  type    = "A"
+  zone_id    = data.aws_route53_zone.private.zone_id
+  name       = var.scanner_private_dns_name
+  type       = "A"
+  depends_on = [terraform_data.deployment_guard]
+
   alias {
     name                   = aws_lb.scanner.dns_name
     zone_id                = aws_lb.scanner.zone_id
