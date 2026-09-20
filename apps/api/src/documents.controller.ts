@@ -27,6 +27,7 @@ import { loadConfig } from './config';
 import { DocumentService } from './documents.service';
 import { ExtractionService } from './extraction.service';
 import { ExtractionWorkerService } from './extraction-worker.service';
+import { CleanupReconcilerService } from './cleanup-reconciler.service';
 import { UploadService } from './uploads.service';
 import { PERSISTENCE_PORT, type PersistencePort } from './persistence/persistence.port';
 
@@ -70,6 +71,7 @@ export class DocumentsController {
     private readonly uploads: UploadService,
     private readonly extraction: ExtractionService,
     private readonly worker: ExtractionWorkerService,
+    private readonly cleanup: CleanupReconcilerService,
   ) {}
 
   @Get()
@@ -130,6 +132,12 @@ export class DocumentsController {
   @RequireScope('documents:write')
   async reconcileExtractionLeases() {
     return this.worker.reconcileExpiredLeases();
+  }
+
+  @Post('reconcile-cleanup')
+  @RequireScope('documents:write')
+  async reconcileCleanup() {
+    return this.cleanup.reconcile();
   }
 
   @Post(':id/extraction')

@@ -14,6 +14,7 @@ enum DocumentStatus {
   PROCESSING
   COMPLETED
   FAILED
+  DELETE_PENDING
   DELETED
 }
 
@@ -36,6 +37,19 @@ enum ActorMode {
   oidc
 }
 
+enum CleanupReason {
+  USER_DELETE
+  ACCOUNT_DELETE
+  RETENTION_EXPIRED
+  REJECTED_UPLOAD
+}
+
+enum CleanupState {
+  PENDING
+  LEASED
+  SUCCEEDED
+}
+
 model Owner {
   id        String     @id
   account   Account?
@@ -51,6 +65,7 @@ model Account {
   consentAccepted Boolean         @default(false)
   consentVersion  String?
   consentedAt     DateTime?
+  deletionRequestedAt DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   securityEvents  SecurityEvent[]
@@ -77,6 +92,8 @@ model Document {
   extractionAttempts Int           @default(0)
   extractionLeaseId String?        @db.Uuid
   extractionLeaseExpiresAt DateTime?
+  retentionExpiresAt DateTime?
+  cleanupTasks      StorageCleanupTask[]
   analysis          Json?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
@@ -84,6 +101,29 @@ model Document {
   @@unique([ownerId, activeContentHash])
   @@index([ownerId, status, createdAt])
   @@index([status, extractionLeaseExpiresAt])
+  @@index([retentionExpiresAt, status])
+}
+
+model StorageCleanupTask {
+  id              String        @id @default(uuid()) @db.Uuid
+  ownerId         String
+  documentId      String?       @db.Uuid
+  document        Document?     @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  objectKey       String        @db.VarChar(160)
+  reason          CleanupReason
+  state           CleanupState  @default(PENDING)
+  attempts        Int           @default(0)
+  nextAttemptAt   DateTime      @default(now())
+  leaseId         String?       @db.Uuid
+  leaseExpiresAt  DateTime?
+  lastErrorCode   String?       @db.VarChar(80)
+  completedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([documentId, objectKey, reason])
+  @@index([state, nextAttemptAt])
+  @@index([ownerId, state])
 }
 
 model SecurityEvent {

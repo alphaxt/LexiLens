@@ -33,11 +33,9 @@ export class AccountService {
     return this.persistence.exportAccount(principal);
   }
 
-  async delete(principal: AuthPrincipal): Promise<{ status: 'DELETED'; purgedDocuments: number }> {
-    const keys = await this.persistence.listStorageKeys(principal.ownerId);
-    // Deletion is idempotent; retain the database owner when storage is unavailable so a retry can reconcile it.
-    await Promise.all(keys.map((key) => this.storage.delete(key)));
-    return this.persistence.deleteOwner(principal);
+  async delete(principal: AuthPrincipal): Promise<{ status: 'PENDING'; purgedDocuments: number }> {
+    // The request is durable before any object operation; the reconciler finalizes only after every known key succeeds.
+    return this.persistence.requestAccountDeletion(principal);
   }
 
   async auditLog(principal: AuthPrincipal): Promise<SecurityEvent[]> {

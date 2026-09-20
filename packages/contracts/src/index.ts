@@ -13,6 +13,7 @@ export const processingStatusSchema = z.enum([
   'PROCESSING',
   'COMPLETED',
   'FAILED',
+  'DELETE_PENDING',
   'DELETED',
 ]);
 export const extractionMethodSchema = z.enum(['native', 'ocr']);

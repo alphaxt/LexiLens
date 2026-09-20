@@ -70,7 +70,7 @@ describe('AccountService privacy lifecycle', () => {
   });
 
   it('transactionally deletes the owner and counts active and soft-deleted documents', async () => {
-    const { accounts, documents } = setup();
+    const { accounts, documents, persistence } = setup();
     const first = await documents.create(principal.ownerId, {
       title: 'First',
       text: 'This membership will automatically renew.',
@@ -84,9 +84,10 @@ describe('AccountService privacy lifecycle', () => {
     });
 
     await expect(accounts.delete(principal)).resolves.toEqual({
-      status: 'DELETED',
-      purgedDocuments: 2,
+      status: 'PENDING',
+      purgedDocuments: 1,
     });
+    await persistence.finalizeDeletedAccounts();
     await expect(documents.list(principal.ownerId)).resolves.toEqual([]);
     await expect(accounts.auditLog(principal)).resolves.toEqual([]);
     await accounts.get(principal);

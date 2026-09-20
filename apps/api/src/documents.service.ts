@@ -106,20 +106,14 @@ export class DocumentService {
   async get(ownerId: string, id: string): Promise<DocumentRecord> {
     return this.requireOwned(ownerId, id);
   }
-  async delete(ownerId: string, id: string): Promise<{ id: string; status: 'DELETED' }> {
-    const record = await this.requireOwned(ownerId, id);
-    if (record.storageKey) {
-      try {
-        await this.storage.delete(record.storageKey);
-      } catch {
-        throw new ServiceUnavailableException(
-          'Private storage cleanup failed; document remains available for retry.',
-        );
-      }
-    }
-    const deleted = await this.persistence.softDeleteDocument(ownerId, id);
-    if (!deleted) throw new NotFoundException('Document not found.');
-    return { id, status: 'DELETED' };
+  async delete(
+    ownerId: string,
+    id: string,
+  ): Promise<{ id: string; status: 'PENDING' | 'DELETED' }> {
+    const result = await this.persistence.requestDocumentDeletion(ownerId, id);
+    if (!result) throw new NotFoundException('Document not found.');
+    // A storage-backed record remains inaccessible but is not reported DELETED until a leased worker records object cleanup.
+    return { id, status: result.status };
   }
   async createDraft(ownerId: string, id: string, request: DraftRequest) {
     const record = await this.requireOwned(ownerId, id);

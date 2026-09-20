@@ -42,6 +42,11 @@ const fromDatabaseRetention = {
   NINETY_DAYS: '90_DAYS',
 } as const;
 
+function retentionExpiry(policy: keyof typeof toDatabaseRetention, basis: Date): Date | null {
+  const days = policy === '7_DAYS' ? 7 : policy === '30_DAYS' ? 30 : policy === '90_DAYS' ? 90 : 0;
+  return days ? new Date(basis.getTime() + days * 86_400_000) : null;
+}
+
 function toDocument(document: DatabaseDocument): DocumentRecord {
   return {
     id: document.id,
@@ -126,7 +131,7 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
 
   async listDocuments(ownerId: string): Promise<DocumentRecord[]> {
     const documents = await this.client.document.findMany({
-      where: { ownerId, status: { not: 'DELETED' } },
+      where: { ownerId, status: { notIn: ['DELETED', 'DELETE_PENDING'] } },
       orderBy: { createdAt: 'desc' },
     });
     return documents.map(toDocument);
@@ -145,6 +150,11 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
       create: { id: record.ownerId },
       update: {},
     });
+    const account = await this.client.account.findUnique({
+      where: { ownerId: record.ownerId },
+      select: { retentionPolicy: true },
+    });
+    const expiryPolicy = account ? fromDatabaseRetention[account.retentionPolicy] : 'SESSION';
     const existing = await this.client.document.findFirst({
       where: { ownerId: record.ownerId, activeContentHash: record.contentHash },
     });
@@ -173,6 +183,7 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
           extractionAttempts: record.extractionAttempts,
           extractionLeaseId: null,
           extractionLeaseExpiresAt: null,
+          retentionExpiresAt: retentionExpiry(expiryPolicy, new Date(record.createdAt)),
           createdAt: new Date(record.createdAt),
           updatedAt: new Date(record.updatedAt),
         },
@@ -346,36 +357,172 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
     return { requeued, exhausted };
   }
 
-  async listStorageKeys(ownerId: string): Promise<string[]> {
-    const documents = await this.client.document.findMany({
-      where: { ownerId, storageKey: { not: null } },
-      select: { storageKey: true },
-    });
-    return documents.flatMap((document) => (document.storageKey ? [document.storageKey] : []));
+  async softDeleteDocument(ownerId: string, id: string): Promise<boolean> {
+    const result = await this.requestDocumentDeletion(ownerId, id);
+    return result?.status === 'DELETED';
   }
 
-  async softDeleteDocument(ownerId: string, id: string): Promise<boolean> {
-    const updated = await this.client.document.updateMany({
-      where: { id, ownerId, status: { not: 'DELETED' } },
+  async requestDocumentDeletion(
+    ownerId: string,
+    id: string,
+    reason: import('./persistence.port').CleanupReason = 'USER_DELETE',
+  ) {
+    return this.client.$transaction(async (transaction) => {
+      const document = await transaction.document.findFirst({
+        where: { id, ownerId, status: { not: 'DELETED' } },
+      });
+      if (!document) return undefined;
+      if (!document.storageKey) {
+        await this.finalizeDocument(transaction, id, ownerId);
+        return { status: 'DELETED' as const };
+      }
+      await transaction.storageCleanupTask.upsert({
+        where: {
+          documentId_objectKey_reason: { documentId: id, objectKey: document.storageKey, reason },
+        },
+        create: { ownerId, documentId: id, objectKey: document.storageKey, reason },
+        update: {},
+      });
+      await transaction.document.update({ where: { id }, data: { status: 'DELETE_PENDING' } });
+      return { status: 'PENDING' as const };
+    });
+  }
+
+  async requestAccountDeletion(principal: PersistencePrincipal) {
+    return this.client.$transaction(async (transaction) => {
+      await this.ensureAccount(transaction, principal);
+      await transaction.account.update({
+        where: { ownerId: principal.ownerId },
+        data: { deletionRequestedAt: new Date() },
+      });
+      const documents = await transaction.document.findMany({
+        where: { ownerId: principal.ownerId, status: { not: 'DELETED' } },
+      });
+      for (const document of documents) {
+        if (document.storageKey) {
+          await transaction.storageCleanupTask.upsert({
+            where: {
+              documentId_objectKey_reason: {
+                documentId: document.id,
+                objectKey: document.storageKey,
+                reason: 'ACCOUNT_DELETE',
+              },
+            },
+            create: {
+              ownerId: principal.ownerId,
+              documentId: document.id,
+              objectKey: document.storageKey,
+              reason: 'ACCOUNT_DELETE',
+            },
+            update: {},
+          });
+          await transaction.document.update({
+            where: { id: document.id },
+            data: { status: 'DELETE_PENDING' },
+          });
+        } else await this.finalizeDocument(transaction, document.id, principal.ownerId);
+      }
+      // Account is intentionally retained until all durable cleanup rows are SUCCEEDED.
+      return { status: 'PENDING' as const, purgedDocuments: documents.length };
+    });
+  }
+
+  async enqueueExpiredRetention(batchSize: number, now = new Date()) {
+    const documents = await this.client.document.findMany({
+      where: { status: { not: 'DELETED' }, retentionExpiresAt: { lte: now } },
+      take: batchSize,
+      orderBy: { retentionExpiresAt: 'asc' },
+    });
+    for (const document of documents)
+      await this.requestDocumentDeletion(document.ownerId, document.id, 'RETENTION_EXPIRED');
+    return documents.length;
+  }
+
+  async claimCleanupTasks(batchSize: number, leaseMs: number, now = new Date()) {
+    const candidates = await this.client.storageCleanupTask.findMany({
+      where: { state: 'PENDING', nextAttemptAt: { lte: now } },
+      take: batchSize,
+      orderBy: { nextAttemptAt: 'asc' },
+    });
+    const tasks: import('./persistence.port').CleanupTask[] = [];
+    for (const candidate of candidates) {
+      const leaseId = randomUUID();
+      const updated = await this.client.storageCleanupTask.updateMany({
+        where: { id: candidate.id, state: 'PENDING', nextAttemptAt: candidate.nextAttemptAt },
+        data: {
+          state: 'LEASED',
+          leaseId,
+          leaseExpiresAt: new Date(now.getTime() + leaseMs),
+          attempts: { increment: 1 },
+        },
+      });
+      if (updated.count)
+        tasks.push({
+          id: candidate.id,
+          ownerId: candidate.ownerId,
+          documentId: candidate.documentId,
+          objectKey: candidate.objectKey,
+          reason: candidate.reason,
+          attempts: candidate.attempts + 1,
+          leaseId,
+        });
+    }
+    return tasks;
+  }
+
+  async completeCleanupTask(task: import('./persistence.port').CleanupTask) {
+    await this.client.$transaction(async (transaction) => {
+      const updated = await transaction.storageCleanupTask.updateMany({
+        where: { id: task.id, state: 'LEASED', leaseId: task.leaseId },
+        data: {
+          state: 'SUCCEEDED',
+          completedAt: new Date(),
+          leaseId: null,
+          leaseExpiresAt: null,
+          lastErrorCode: null,
+        },
+      });
+      if (updated.count && task.documentId)
+        await this.finalizeDocument(transaction, task.documentId, task.ownerId);
+    });
+  }
+
+  async failCleanupTask(
+    task: import('./persistence.port').CleanupTask,
+    errorCode: string,
+    retryAfterMs: number,
+  ) {
+    await this.client.storageCleanupTask.updateMany({
+      where: { id: task.id, state: 'LEASED', leaseId: task.leaseId },
       data: {
-        sourceText: '',
-        analysis: Prisma.DbNull,
-        storageKey: null,
-        originalFilename: null,
-        declaredMime: null,
-        detectedMime: null,
-        byteSize: null,
-        scanResult: null,
-        rejectionCode: null,
-        extractionArtifact: Prisma.DbNull,
-        extractionFailure: Prisma.DbNull,
-        extractionLeaseId: null,
-        extractionLeaseExpiresAt: null,
-        activeContentHash: null,
-        status: 'DELETED',
+        state: 'PENDING',
+        leaseId: null,
+        leaseExpiresAt: null,
+        nextAttemptAt: new Date(Date.now() + retryAfterMs),
+        lastErrorCode: errorCode,
       },
     });
-    return updated.count === 1;
+  }
+
+  async finalizeDeletedAccounts() {
+    const accounts = await this.client.account.findMany({
+      where: { deletionRequestedAt: { not: null } },
+      select: { ownerId: true },
+    });
+    let finalized = 0;
+    for (const account of accounts) {
+      const active = await this.client.document.count({
+        where: { ownerId: account.ownerId, status: { not: 'DELETED' } },
+      });
+      const unfinished = await this.client.storageCleanupTask.count({
+        where: { ownerId: account.ownerId, state: { not: 'SUCCEEDED' } },
+      });
+      if (!active && !unfinished) {
+        await this.client.owner.delete({ where: { id: account.ownerId } }).catch(() => undefined);
+        finalized += 1;
+      }
+    }
+    return finalized;
   }
 
   async getOrCreateAccount(principal: PersistencePrincipal): Promise<Account> {
@@ -405,6 +552,12 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
               }),
         },
       });
+      if (input.retentionPolicy !== undefined) {
+        await transaction.document.updateMany({
+          where: { ownerId: principal.ownerId, status: { not: 'DELETED' } },
+          data: { retentionExpiresAt: retentionExpiry(input.retentionPolicy, new Date()) },
+        });
+      }
       await this.record(transaction, principal, 'PRIVACY_UPDATED');
       return toAccount(account);
     });
@@ -492,6 +645,33 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
     } catch {
       return { healthy: false, mode: 'postgresql', schemaVersion: DATABASE_SCHEMA_VERSION };
     }
+  }
+
+  private async finalizeDocument(
+    transaction: Prisma.TransactionClient,
+    id: string,
+    ownerId: string,
+  ): Promise<void> {
+    await transaction.document.updateMany({
+      where: { id, ownerId, status: { not: 'DELETED' } },
+      data: {
+        sourceText: '',
+        analysis: Prisma.DbNull,
+        storageKey: null,
+        originalFilename: null,
+        declaredMime: null,
+        detectedMime: null,
+        byteSize: null,
+        scanResult: null,
+        rejectionCode: null,
+        extractionArtifact: Prisma.DbNull,
+        extractionFailure: Prisma.DbNull,
+        extractionLeaseId: null,
+        extractionLeaseExpiresAt: null,
+        activeContentHash: null,
+        status: 'DELETED',
+      },
+    });
   }
 
   private async ensureAccount(

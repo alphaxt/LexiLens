@@ -12,6 +12,7 @@ import { NATIVE_DOCUMENT_EXTRACTOR_PORT } from './extraction/native-document-ext
 import { OCR_PROVIDER_PORT } from './extraction/ocr-provider.port';
 import { ExtractionService } from './extraction.service';
 import { ExtractionWorkerService } from './extraction-worker.service';
+import { CleanupReconcilerService } from './cleanup-reconciler.service';
 import { MemoryPersistenceAdapter } from './persistence/memory-persistence.adapter';
 import { PERSISTENCE_PORT } from './persistence/persistence.port';
 import { PrismaPersistenceAdapter } from './persistence/prisma-persistence.adapter';
@@ -59,6 +60,7 @@ const config = loadConfig();
     UploadService,
     ExtractionService,
     ExtractionWorkerService,
+    CleanupReconcilerService,
     AccountService,
     IdentityService,
     IdentityGuard,

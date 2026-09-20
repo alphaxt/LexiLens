@@ -28,18 +28,35 @@ export class MemoryPersistenceAdapter implements PersistencePort {
   private readonly documents = new Map<string, DocumentRecord>();
   private readonly accounts = new Map<string, Account>();
   private readonly events = new Map<string, SequencedEvent[]>();
+  private readonly cleanupTasks = new Map<
+    string,
+    import('./persistence.port').CleanupTask & {
+      state: 'PENDING' | 'LEASED' | 'SUCCEEDED';
+      nextAttemptAt: number;
+      leaseExpiresAt: number | null;
+      documentDeleted: boolean;
+    }
+  >();
+  private readonly deletingOwners = new Set<string>();
   private nextSequence = 1;
 
   async listDocuments(ownerId: string): Promise<DocumentRecord[]> {
     return [...this.documents.values()]
-      .filter((document) => document.ownerId === ownerId && document.status !== 'DELETED')
+      .filter(
+        (document) =>
+          document.ownerId === ownerId && !['DELETED', 'DELETE_PENDING'].includes(document.status),
+      )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .map(clone);
   }
 
   async findDocument(ownerId: string, id: string): Promise<DocumentRecord | undefined> {
     const document = this.documents.get(id);
-    if (!document || document.ownerId !== ownerId || document.status === 'DELETED')
+    if (
+      !document ||
+      document.ownerId !== ownerId ||
+      ['DELETED', 'DELETE_PENDING'].includes(document.status)
+    )
       return undefined;
     return clone(document);
   }
@@ -233,27 +250,143 @@ export class MemoryPersistenceAdapter implements PersistencePort {
   }
 
   async softDeleteDocument(ownerId: string, id: string): Promise<boolean> {
+    const result = await this.requestDocumentDeletion(ownerId, id);
+    return result?.status === 'DELETED';
+  }
+
+  async requestDocumentDeletion(
+    ownerId: string,
+    id: string,
+    reason: import('./persistence.port').CleanupReason = 'USER_DELETE',
+  ) {
     const current = this.documents.get(id);
-    if (!current || current.ownerId !== ownerId || current.status === 'DELETED') return false;
+    if (!current || current.ownerId !== ownerId || current.status === 'DELETED') return undefined;
+    if (!current.storageKey) {
+      this.finalizeDocument(id);
+      return { status: 'DELETED' as const };
+    }
+    this.enqueueTask(ownerId, id, current.storageKey, reason);
     this.documents.set(id, {
       ...current,
-      sourceText: '',
-      analysis: null,
-      storageKey: null,
-      originalFilename: null,
-      declaredMime: null,
-      detectedMime: null,
-      byteSize: null,
-      scanResult: null,
-      rejectionCode: null,
-      extractionArtifact: null,
-      extractionFailure: null,
-      extractionLeaseId: null,
-      extractionLeaseExpiresAt: null,
-      status: 'DELETED',
+      status: 'DELETE_PENDING',
       updatedAt: new Date().toISOString(),
     });
-    return true;
+    return { status: 'PENDING' as const };
+  }
+
+  async requestAccountDeletion(principal: PersistencePrincipal) {
+    this.ensureAccount(principal);
+    this.deletingOwners.add(principal.ownerId);
+    const documents = [...this.documents.values()].filter(
+      (document) => document.ownerId === principal.ownerId && document.status !== 'DELETED',
+    );
+    for (const document of documents) {
+      if (document.storageKey) {
+        this.enqueueTask(principal.ownerId, document.id, document.storageKey, 'ACCOUNT_DELETE');
+        this.documents.set(document.id, {
+          ...document,
+          status: 'DELETE_PENDING',
+          updatedAt: new Date().toISOString(),
+        });
+      } else this.finalizeDocument(document.id);
+    }
+    return { status: 'PENDING' as const, purgedDocuments: documents.length };
+  }
+
+  async enqueueExpiredRetention(batchSize: number, now = new Date()) {
+    let queued = 0;
+    for (const document of [...this.documents.values()]
+      .filter(
+        (candidate) =>
+          candidate.status !== 'DELETED' &&
+          new Date(candidate.createdAt).getTime() <= now.getTime(),
+      )
+      .slice(0, batchSize)) {
+      // SESSION is deliberately excluded: it is session-bound client data and has no server expiry basis.
+      const account = this.accounts.get(document.ownerId);
+      const days =
+        account?.privacy.retentionPolicy === '7_DAYS'
+          ? 7
+          : account?.privacy.retentionPolicy === '30_DAYS'
+            ? 30
+            : account?.privacy.retentionPolicy === '90_DAYS'
+              ? 90
+              : 0;
+      if (days && new Date(document.createdAt).getTime() + days * 86400000 <= now.getTime()) {
+        const result = await this.requestDocumentDeletion(
+          document.ownerId,
+          document.id,
+          'RETENTION_EXPIRED',
+        );
+        if (result) queued += 1;
+      }
+    }
+    return queued;
+  }
+
+  async claimCleanupTasks(batchSize: number, leaseMs: number, now = new Date()) {
+    const tasks = [...this.cleanupTasks.values()]
+      .filter((task) => task.state === 'PENDING' && task.nextAttemptAt <= now.getTime())
+      .slice(0, batchSize);
+    return tasks.map((task) => {
+      const leaseId = randomUUID();
+      task.state = 'LEASED';
+      task.leaseId = leaseId;
+      task.leaseExpiresAt = now.getTime() + leaseMs;
+      task.attempts += 1;
+      return clone({
+        id: task.id,
+        ownerId: task.ownerId,
+        documentId: task.documentId,
+        objectKey: task.objectKey,
+        reason: task.reason,
+        attempts: task.attempts,
+        leaseId,
+      });
+    });
+  }
+
+  async completeCleanupTask(task: import('./persistence.port').CleanupTask) {
+    const stored = this.cleanupTasks.get(task.id);
+    if (!stored || stored.state !== 'LEASED' || stored.leaseId !== task.leaseId) return;
+    stored.state = 'SUCCEEDED';
+    stored.leaseExpiresAt = null;
+    if (stored.documentId) this.finalizeDocument(stored.documentId);
+  }
+
+  async failCleanupTask(
+    task: import('./persistence.port').CleanupTask,
+    _errorCode: string,
+    retryAfterMs: number,
+  ) {
+    const stored = this.cleanupTasks.get(task.id);
+    if (!stored || stored.state !== 'LEASED' || stored.leaseId !== task.leaseId) return;
+    stored.state = 'PENDING';
+    stored.leaseExpiresAt = null;
+    stored.nextAttemptAt = Date.now() + retryAfterMs;
+  }
+
+  async finalizeDeletedAccounts() {
+    let finalized = 0;
+    for (const ownerId of [...this.deletingOwners]) {
+      const pending = [...this.cleanupTasks.values()].some(
+        (task) => task.ownerId === ownerId && task.state !== 'SUCCEEDED',
+      );
+      if (!pending) {
+        const count = [...this.documents.values()].filter(
+          (document) => document.ownerId === ownerId,
+        ).length;
+        for (const document of [...this.documents.values()].filter(
+          (candidate) => candidate.ownerId === ownerId,
+        ))
+          this.finalizeDocument(document.id);
+        this.accounts.delete(ownerId);
+        this.events.delete(ownerId);
+        this.deletingOwners.delete(ownerId);
+        finalized += count > -1 ? 1 : 0;
+      }
+    }
+    return finalized;
   }
 
   async getOrCreateAccount(principal: PersistencePrincipal): Promise<Account> {
@@ -315,6 +448,56 @@ export class MemoryPersistenceAdapter implements PersistencePort {
 
   async health(): Promise<PersistenceHealth> {
     return { healthy: true, mode: 'memory', schemaVersion: DATABASE_SCHEMA_VERSION };
+  }
+
+  private enqueueTask(
+    ownerId: string,
+    documentId: string,
+    objectKey: string,
+    reason: import('./persistence.port').CleanupReason,
+  ): void {
+    const existing = [...this.cleanupTasks.values()].find(
+      (task) =>
+        task.documentId === documentId && task.objectKey === objectKey && task.reason === reason,
+    );
+    if (existing) return;
+    const id = randomUUID();
+    this.cleanupTasks.set(id, {
+      id,
+      ownerId,
+      documentId,
+      objectKey,
+      reason,
+      attempts: 0,
+      leaseId: '',
+      state: 'PENDING',
+      nextAttemptAt: Date.now(),
+      leaseExpiresAt: null,
+      documentDeleted: false,
+    });
+  }
+
+  private finalizeDocument(id: string): void {
+    const current = this.documents.get(id);
+    if (!current || current.status === 'DELETED') return;
+    this.documents.set(id, {
+      ...current,
+      sourceText: '',
+      analysis: null,
+      storageKey: null,
+      originalFilename: null,
+      declaredMime: null,
+      detectedMime: null,
+      byteSize: null,
+      scanResult: null,
+      rejectionCode: null,
+      extractionArtifact: null,
+      extractionFailure: null,
+      extractionLeaseId: null,
+      extractionLeaseExpiresAt: null,
+      status: 'DELETED',
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   private ensureAccount(principal: PersistencePrincipal): Account {
