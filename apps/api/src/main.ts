@@ -19,6 +19,16 @@ async function bootstrap(): Promise<void> {
       'Local evidence-first consumer document screening API; not a production identity boundary',
     )
     .setVersion('0.1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description:
+          'RS256 OIDC access token when AUTH_MODE=oidc; the bundled web UI is local-mode only.',
+      },
+      'oidc',
+    )
     .build();
   SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swagger));
 
