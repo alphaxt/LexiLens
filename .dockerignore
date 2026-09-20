@@ -1,0 +1,14 @@
+.git
+.github
+.turbo
+node_modules
+**/node_modules
+**/dist
+**/.next
+.env
+.env.*
+!.env.example
+coverage
+semantic-review
+*.log
+infra/.terraform

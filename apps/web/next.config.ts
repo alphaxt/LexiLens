@@ -32,6 +32,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Required by apps/web/Dockerfile; keep runtime image free of source and dev tooling.
+  output: 'standalone',
   transpilePackages: ['@lexilens/contracts'],
   poweredByHeader: false,
   async headers() {

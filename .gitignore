@@ -10,4 +10,12 @@ coverage/
 .env.*
 !.env.example
 *.log
+# Local Compose overrides and Terraform state can contain credentials. Do not commit them.
+compose.override.yaml
+compose.local.yaml
+terraform.tfvars
+*.auto.tfvars
+*.tfstate
+*.tfstate.*
+infra/.terraform/
 .DS_Store

@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars only after user approval; terraform.tfvars is ignored.
+aws_region          = "us-east-1"
+stage               = "staging"
+vpc_id              = "vpc-REPLACE_AFTER_NETWORK_REVIEW"
+private_subnet_ids  = ["subnet-REPLACE_1", "subnet-REPLACE_2"]
+database_subnet_ids = ["subnet-REPLACE_1", "subnet-REPLACE_2"]
+container_image     = "registry.example/lexilens-api@sha256:REPLACE_WITH_64_HEX_CHARACTERS"
+# api_certificate_arn = "arn:aws:acm:REGION:ACCOUNT:certificate/REPLACE"
+# alert_email         = "on-call@example.invalid"
+tags = { Environment = "staging", Owner = "platform" }
