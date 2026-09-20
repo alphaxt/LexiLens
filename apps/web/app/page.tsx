@@ -1,6 +1,7 @@
 'use client';
 
 import type { Clause, DocumentRecord } from '@lexilens/contracts';
+import Link from 'next/link';
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { useAuth } from './auth-provider';
 import { publicAuthConfig } from '../lib/auth-config';
@@ -268,12 +269,20 @@ export default function HomePage() {
         {publicAuthConfig.mode === 'oidc' ? (
           <div className="account">
             <span>{identity}</span>
+            <Link className="secondary compact" href="/account">
+              Account & privacy
+            </Link>
             <button className="secondary compact" onClick={() => void logout()}>
               Sign out
             </button>
           </div>
         ) : (
-          <p>Local development demo</p>
+          <div className="account">
+            <span>Local development demo</span>
+            <Link className="secondary compact" href="/account">
+              Account & privacy
+            </Link>
+          </div>
         )}
       </header>
 

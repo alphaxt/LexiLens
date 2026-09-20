@@ -575,3 +575,102 @@ select {
 .auth-screen button {
   min-width: 160px;
 }
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.secondary {
+  background: transparent;
+  border: 1px solid var(--forest);
+  color: var(--forest);
+}
+.compact {
+  display: inline-block;
+  margin-top: 0;
+  padding: 7px 10px;
+  text-decoration: none;
+}
+.account-page {
+  max-width: 1040px;
+}
+.account-hero {
+  padding: 54px 0 25px;
+  max-width: 760px;
+}
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.settings-card {
+  padding: 24px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(20, 55, 38, 0.04);
+}
+.settings-card p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.settings-card select {
+  width: 100%;
+  border: 1px solid #b9cbbd;
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: #fff;
+  color: var(--ink);
+}
+.field-help {
+  font-size: 0.82rem;
+}
+.checkbox {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-weight: 600;
+}
+.checkbox input {
+  width: auto;
+  margin-top: 3px;
+}
+.success {
+  padding: 12px 15px;
+  color: var(--forest);
+  background: var(--mint);
+  border-radius: 8px;
+  font-weight: 700;
+}
+.audit-list {
+  padding-left: 0;
+  margin: 0;
+  list-style: none;
+}
+.audit-list li {
+  display: grid;
+  gap: 3px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.audit-list span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.danger-card {
+  border-color: #e5b7b1;
+}
+.danger {
+  background: var(--red);
+}
+@media (max-width: 760px) {
+  .account-grid {
+    grid-template-columns: 1fr;
+  }
+  .account {
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}

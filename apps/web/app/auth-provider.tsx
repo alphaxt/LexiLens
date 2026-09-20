@@ -73,7 +73,11 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
 
   const logout = useCallback(async () => {
     clearOidcSession();
-    if (publicAuthConfig.mode !== 'oidc') return;
+    if (publicAuthConfig.mode === 'local') {
+      window.localStorage.removeItem('lexilens-local-session');
+      setLocalSession(null);
+      return;
+    }
     try {
       await getOidcManager().signoutRedirect();
     } catch {
