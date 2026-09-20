@@ -97,10 +97,23 @@ function segments(text: string): Array<{ text: string; start: number }> {
   return lines.length ? lines : [{ text: fallback, start: fallbackStart }];
 }
 
-function toClause(rule: Rule, text: string, start: number, index: number): Clause {
+function toClause(
+  rule: Rule,
+  text: string,
+  start: number,
+  index: number,
+  matchStart: number,
+  matchLength: number,
+): Clause {
+  const evidenceLimit = 2000;
+  const availableContext = Math.max(0, evidenceLimit - matchLength);
+  const preferredStart = matchStart - Math.floor(availableContext / 2);
+  const excerptStart = Math.max(0, Math.min(preferredStart, text.length - evidenceLimit));
+  const excerptEnd = Math.min(text.length, excerptStart + evidenceLimit);
+  const excerpt = text.slice(excerptStart, excerptEnd);
   return {
     clauseId: `clause-${index + 1}`,
-    originalText: text,
+    originalText: excerpt,
     plainLanguageSummary: rule.summary,
     riskLevel: rule.riskLevel,
     riskReasoning: rule.reasoning,
@@ -108,9 +121,9 @@ function toClause(rule: Rule, text: string, start: number, index: number): Claus
     suggestedRevision: rule.revision,
     evidence: {
       pageNumber: null,
-      startOffset: start,
-      endOffset: start + text.length,
-      excerpt: text.slice(0, 2000),
+      startOffset: start + excerptStart,
+      endOffset: start + excerptEnd,
+      excerpt,
       confidence: 0.88,
     },
     confidence: 0.88,
@@ -135,7 +148,12 @@ export function auditConsumerDocument(title: string, sourceText: string): Audit 
   const clauses: Clause[] = [];
   for (const segment of segments(sourceText)) {
     for (const rule of CONSUMER_RULES) {
-      if (rule.pattern.test(segment.text)) clauses.push(toClause(rule, segment.text, segment.start, clauses.length));
+      const match = segment.text.match(rule.pattern);
+      if (match) {
+        clauses.push(
+          toClause(rule, segment.text, segment.start, clauses.length, match.index ?? 0, match[0].length),
+        );
+      }
     }
   }
   const baseAmount = extractAmount(sourceText);
