@@ -13,7 +13,9 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "security:policy:test": "node --test scripts/security-policy.test.mjs",
+    "security:audit": "pnpm audit --prod --json > .audit.json || true && node scripts/security-policy.mjs audit .audit.json"
   },
   "devDependencies": {
     "@types/node": "22.13.10",
