@@ -11,7 +11,7 @@ const migration = readFileSync(
 
 describe('initial PostgreSQL migration', () => {
   it('tracks the checked-in migration as the exported schema version', () => {
-    expect(DATABASE_SCHEMA_VERSION).toBe('20260922000000_add_extraction_worker');
+    expect(DATABASE_SCHEMA_VERSION).toBe('20260923000000_add_extraction_lease_reconciliation');
   });
 
   it('creates every model and enum represented by the Prisma schema', () => {

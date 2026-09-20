@@ -93,3 +93,33 @@ describe('runtime configuration', () => {
     });
   });
 });
+
+describe('OCR provider configuration boundary', () => {
+  it('keeps OCR disabled by default', () => {
+    expect(loadConfig({ NODE_ENV: 'test' }).OCR_MODE).toBe('disabled');
+  });
+
+  it('fails closed when an enabled provider selection is incomplete', () => {
+    expect(() => loadConfig({ NODE_ENV: 'test', OCR_MODE: 'configured' })).toThrow(
+      'OCR_PROVIDER_ENDPOINT is required',
+    );
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'test',
+        OCR_MODE: 'configured',
+        OCR_PROVIDER_ENDPOINT: 'https://ocr.example.test/extract',
+      }),
+    ).toThrow('OCR_PROVIDER_CREDENTIAL is required');
+  });
+
+  it('requires HTTPS for configured production OCR endpoints', () => {
+    expect(() =>
+      loadConfig({
+        ...productionOidc,
+        OCR_MODE: 'configured',
+        OCR_PROVIDER_ENDPOINT: 'http://ocr.example.test/extract',
+        OCR_PROVIDER_CREDENTIAL: 'deployment-secret',
+      }),
+    ).toThrow('OCR provider endpoint must use HTTPS');
+  });
+});

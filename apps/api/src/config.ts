@@ -12,7 +12,11 @@ const environmentSchema = z
     EXTRACTION_MAX_PAGES: z.coerce.number().int().min(1).max(1_000).default(100),
     EXTRACTION_TIMEOUT_MS: z.coerce.number().int().min(100).max(120_000).default(10_000),
     EXTRACTION_LEASE_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(60_000),
-    OCR_MODE: z.enum(['disabled']).default('disabled'),
+    EXTRACTION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100).default(3),
+    EXTRACTION_RECONCILIATION_BATCH_SIZE: z.coerce.number().int().min(1).max(1_000).default(100),
+    OCR_MODE: z.enum(['disabled', 'configured']).default('disabled'),
+    OCR_PROVIDER_ENDPOINT: z.string().url().optional(),
+    OCR_PROVIDER_CREDENTIAL: z.string().min(1).optional(),
     STORAGE_MODE: z.enum(['memory', 's3']).default('memory'),
     S3_ENDPOINT: z.string().url().optional(),
     S3_BUCKET: z.string().min(3).optional(),
@@ -32,26 +36,46 @@ const environmentSchema = z
     OIDC_AUDIENCE: z.string().min(1).optional(),
   })
   .superRefine((config, context) => {
-    if (config.NODE_ENV === 'production' && config.AUTH_MODE !== 'oidc') {
+    const required = (field: keyof typeof config, message: string) => {
+      if (!config[field]) context.addIssue({ code: z.ZodIssueCode.custom, path: [field], message });
+    };
+    if (config.NODE_ENV === 'production' && config.AUTH_MODE !== 'oidc')
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['AUTH_MODE'],
         message: 'Production requires AUTH_MODE=oidc.',
       });
-    }
-    if (config.NODE_ENV === 'production' && config.STORAGE_MODE !== 's3') {
+    if (config.NODE_ENV === 'production' && config.STORAGE_MODE !== 's3')
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['STORAGE_MODE'],
         message: 'Production requires private S3-compatible storage.',
       });
-    }
-    if (config.NODE_ENV === 'production' && config.SCANNER_MODE !== 'magic') {
+    if (config.NODE_ENV === 'production' && config.SCANNER_MODE !== 'magic')
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['SCANNER_MODE'],
         message: 'Production requires an explicit scanner mode.',
       });
+    if (config.OCR_MODE === 'configured') {
+      required(
+        'OCR_PROVIDER_ENDPOINT',
+        'OCR_PROVIDER_ENDPOINT is required when OCR is configured.',
+      );
+      required(
+        'OCR_PROVIDER_CREDENTIAL',
+        'OCR_PROVIDER_CREDENTIAL is required when OCR is configured.',
+      );
+      if (
+        config.NODE_ENV === 'production' &&
+        config.OCR_PROVIDER_ENDPOINT &&
+        !config.OCR_PROVIDER_ENDPOINT.startsWith('https://')
+      )
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['OCR_PROVIDER_ENDPOINT'],
+          message: 'Production OCR provider endpoint must use HTTPS.',
+        });
     }
     if (config.STORAGE_MODE === 's3') {
       for (const field of [
@@ -59,98 +83,68 @@ const environmentSchema = z
         'S3_BUCKET',
         'S3_ACCESS_KEY_ID',
         'S3_SECRET_ACCESS_KEY',
-      ] as const) {
-        if (!config[field])
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [field],
-            message: `${field} is required for S3 storage.`,
-          });
-      }
+      ] as const)
+        required(field, `${field} is required for S3 storage.`);
       if (
         config.NODE_ENV === 'production' &&
         config.S3_ENDPOINT &&
         !config.S3_ENDPOINT.startsWith('https://')
-      ) {
+      )
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['S3_ENDPOINT'],
           message: 'Production S3 endpoint must use HTTPS.',
         });
-      }
     }
-    if (config.NODE_ENV === 'production' && config.PERSISTENCE_MODE !== 'postgresql') {
+    if (config.NODE_ENV === 'production' && config.PERSISTENCE_MODE !== 'postgresql')
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['PERSISTENCE_MODE'],
         message: 'Production requires PERSISTENCE_MODE=postgresql.',
       });
-    }
     if (config.PERSISTENCE_MODE === 'postgresql') {
-      if (!config.DATABASE_URL) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['DATABASE_URL'],
-          message: 'DATABASE_URL is required in PostgreSQL persistence mode.',
-        });
-      } else if (!/^postgres(?:ql)?:\/\//.test(config.DATABASE_URL)) {
+      required('DATABASE_URL', 'DATABASE_URL is required in PostgreSQL persistence mode.');
+      if (config.DATABASE_URL && !/^postgres(?:ql)?:\/\//.test(config.DATABASE_URL))
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['DATABASE_URL'],
           message: 'DATABASE_URL must use the postgresql:// or postgres:// protocol.',
         });
-      }
     }
-    if (config.AUTH_MODE === 'local' && !['127.0.0.1', 'localhost', '::1'].includes(config.HOST)) {
+    if (config.AUTH_MODE === 'local' && !['127.0.0.1', 'localhost', '::1'].includes(config.HOST))
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['HOST'],
         message: 'Local authentication mode requires a loopback HOST.',
       });
-    }
     if (config.AUTH_MODE === 'oidc') {
-      if (!config.OIDC_ISSUER_URL) {
+      required('OIDC_ISSUER_URL', 'OIDC_ISSUER_URL is required in OIDC mode.');
+      required('OIDC_JWKS_URI', 'OIDC_JWKS_URI is required in OIDC mode.');
+      required('OIDC_AUDIENCE', 'OIDC_AUDIENCE is required in OIDC mode.');
+      if (
+        config.NODE_ENV === 'production' &&
+        config.OIDC_ISSUER_URL &&
+        !config.OIDC_ISSUER_URL.startsWith('https://')
+      )
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['OIDC_ISSUER_URL'],
-          message: 'OIDC_ISSUER_URL is required in OIDC mode.',
+          message: 'Production OIDC issuer must use HTTPS.',
         });
-      }
-      if (!config.OIDC_JWKS_URI) {
+      if (
+        config.NODE_ENV === 'production' &&
+        config.OIDC_JWKS_URI &&
+        !config.OIDC_JWKS_URI.startsWith('https://')
+      )
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['OIDC_JWKS_URI'],
-          message: 'OIDC_JWKS_URI is required in OIDC mode.',
+          message: 'Production JWKS URI must use HTTPS.',
         });
-      }
-      if (!config.OIDC_AUDIENCE) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['OIDC_AUDIENCE'],
-          message: 'OIDC_AUDIENCE is required in OIDC mode.',
-        });
-      }
-      if (config.NODE_ENV === 'production') {
-        if (config.OIDC_ISSUER_URL && !config.OIDC_ISSUER_URL.startsWith('https://')) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['OIDC_ISSUER_URL'],
-            message: 'Production OIDC issuer must use HTTPS.',
-          });
-        }
-        if (config.OIDC_JWKS_URI && !config.OIDC_JWKS_URI.startsWith('https://')) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['OIDC_JWKS_URI'],
-            message: 'Production JWKS URI must use HTTPS.',
-          });
-        }
-      }
     }
   });
 
 export type AppConfig = z.infer<typeof environmentSchema>;
-
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
   return environmentSchema.parse(environment);
 }

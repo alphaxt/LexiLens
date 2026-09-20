@@ -23,6 +23,10 @@ export interface ExtractionClaim {
   document: DocumentRecord;
   leaseId: string;
 }
+export interface LeaseReconciliationResult {
+  requeued: number;
+  exhausted: number;
+}
 export interface AccountExport {
   exportedAt: string;
   account: Account;
@@ -68,6 +72,11 @@ export interface PersistencePort {
     artifact: ExtractionArtifact | null,
     failure: ExtractionFailure,
   ): Promise<DocumentRecord | undefined>;
+  reconcileExpiredExtractionLeases(
+    maxAttempts: number,
+    batchSize: number,
+    now?: Date,
+  ): Promise<LeaseReconciliationResult>;
   listStorageKeys(ownerId: string): Promise<string[]>;
   softDeleteDocument(ownerId: string, id: string): Promise<boolean>;
   getOrCreateAccount(principal: PersistencePrincipal): Promise<Account>;

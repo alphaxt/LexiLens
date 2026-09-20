@@ -26,6 +26,7 @@ import { type AuthPrincipal, CurrentPrincipal, IdentityGuard } from './auth/iden
 import { loadConfig } from './config';
 import { DocumentService } from './documents.service';
 import { ExtractionService } from './extraction.service';
+import { ExtractionWorkerService } from './extraction-worker.service';
 import { UploadService } from './uploads.service';
 import { PERSISTENCE_PORT, type PersistencePort } from './persistence/persistence.port';
 
@@ -76,6 +77,7 @@ export class DocumentsController {
     private readonly documents: DocumentService,
     private readonly uploads: UploadService,
     private readonly extraction: ExtractionService,
+    private readonly worker: ExtractionWorkerService,
   ) {}
 
   @Get()
@@ -127,6 +129,13 @@ export class DocumentsController {
   @Delete(':id')
   async delete(@CurrentPrincipal() principal: AuthPrincipal, @Param('id') id: string) {
     return this.documents.delete(principal.ownerId, id);
+  }
+
+  @Post('reconcile-extraction')
+  @UseGuards(RequireScopeGuard)
+  @ApiOperation({ summary: 'Request bounded reconciliation of expired extraction leases' })
+  async reconcileExtractionLeases() {
+    return this.worker.reconcileExpiredLeases();
   }
 
   @Post(':id/extraction')

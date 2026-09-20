@@ -120,7 +120,9 @@ export class MemoryPersistenceAdapter implements PersistencePort {
       !current ||
       current.ownerId !== ownerId ||
       current.status !== 'PROCESSING' ||
-      current.extractionLeaseId !== leaseId
+      current.extractionLeaseId !== leaseId ||
+      !current.extractionLeaseExpiresAt ||
+      new Date(current.extractionLeaseExpiresAt).getTime() <= Date.now()
     )
       return undefined;
     const updated = {
@@ -150,7 +152,9 @@ export class MemoryPersistenceAdapter implements PersistencePort {
       !current ||
       current.ownerId !== ownerId ||
       current.status !== 'PROCESSING' ||
-      current.extractionLeaseId !== leaseId
+      current.extractionLeaseId !== leaseId ||
+      !current.extractionLeaseExpiresAt ||
+      new Date(current.extractionLeaseExpiresAt).getTime() <= Date.now()
     )
       return undefined;
     const updated = {
@@ -165,6 +169,61 @@ export class MemoryPersistenceAdapter implements PersistencePort {
     };
     this.documents.set(id, updated);
     return clone(updated);
+  }
+
+  async reconcileExpiredExtractionLeases(maxAttempts: number, batchSize: number, now = new Date()) {
+    let requeued = 0;
+    let exhausted = 0;
+    const expired = [...this.documents.values()]
+      .filter(
+        (document) =>
+          document.status === 'PROCESSING' &&
+          document.extractionLeaseExpiresAt !== null &&
+          new Date(document.extractionLeaseExpiresAt).getTime() <= now.getTime(),
+      )
+      .sort((left, right) =>
+        left.extractionLeaseExpiresAt!.localeCompare(right.extractionLeaseExpiresAt!),
+      )
+      .slice(0, batchSize);
+    for (const current of expired) {
+      // The map lookup is the in-memory compare-and-set fence used by concurrent callers.
+      if (
+        this.documents.get(current.id)?.status !== 'PROCESSING' ||
+        this.documents.get(current.id)?.extractionLeaseId !== current.extractionLeaseId ||
+        this.documents.get(current.id)?.extractionLeaseExpiresAt !==
+          current.extractionLeaseExpiresAt
+      )
+        continue;
+      const updatedAt = new Date().toISOString();
+      if (current.extractionAttempts < maxAttempts) {
+        this.documents.set(current.id, {
+          ...current,
+          status: 'READY_FOR_EXTRACTION',
+          extractionLeaseId: null,
+          extractionLeaseExpiresAt: null,
+          updatedAt,
+        });
+        requeued += 1;
+      } else {
+        this.documents.set(current.id, {
+          ...current,
+          status: 'FAILED',
+          extractionLeaseId: null,
+          extractionLeaseExpiresAt: null,
+          extractionFailure: {
+            code: 'EXTRACTION_TIMEOUT',
+            message: 'Extraction lease expired after the configured retry limit.',
+            retryable: false,
+            occurredAt: updatedAt,
+            pageNumber: null,
+          },
+          analysis: null,
+          updatedAt,
+        });
+        exhausted += 1;
+      }
+    }
+    return { requeued, exhausted };
   }
 
   async listStorageKeys(ownerId: string): Promise<string[]> {

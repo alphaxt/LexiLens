@@ -61,7 +61,7 @@ describe('MemoryPersistenceAdapter repository contract', () => {
     await expect(repository.health()).resolves.toEqual({
       healthy: true,
       mode: 'memory',
-      schemaVersion: '20260922000000_add_extraction_worker',
+      schemaVersion: '20260923000000_add_extraction_lease_reconciliation',
     });
   });
 });
@@ -112,5 +112,64 @@ describe('extraction claim lifecycle', () => {
       ),
     ).resolves.toBeUndefined();
     expect(winner.document.status).toBe('PROCESSING');
+  });
+});
+
+describe('expired extraction lease reconciliation', () => {
+  async function claimed(attempts = 0) {
+    const repository = new MemoryPersistenceAdapter();
+    const document = quarantined('owner-a');
+    document.status = 'READY_FOR_EXTRACTION';
+    document.scanResult = 'CLEAN';
+    document.storageKey = 'q-safe';
+    document.extractionAttempts = attempts;
+    await repository.reserveDocument(document);
+    const claim = await repository.claimReadyForExtraction('owner-a', document.id, 1_000);
+    return { repository, document, claim: claim! };
+  }
+
+  it('atomically requeues one expired claim and rejects its late completion', async () => {
+    const { repository, document, claim } = await claimed();
+    const result = await repository.reconcileExpiredExtractionLeases(
+      3,
+      10,
+      new Date(Date.now() + 2_000),
+    );
+    expect(result).toEqual({ requeued: 1, exhausted: 0 });
+    await expect(
+      repository.completeExtraction(
+        'owner-a',
+        document.id,
+        claim.leaseId,
+        {} as never,
+        {} as never,
+      ),
+    ).resolves.toBeUndefined();
+    await expect(repository.findDocument('owner-a', document.id)).resolves.toMatchObject({
+      status: 'READY_FOR_EXTRACTION',
+      extractionAttempts: 1,
+      extractionLeaseId: null,
+    });
+  });
+
+  it('does not reconcile the same claim twice during concurrent runs', async () => {
+    const { repository } = await claimed();
+    const results = await Promise.all([
+      repository.reconcileExpiredExtractionLeases(3, 10, new Date(Date.now() + 2_000)),
+      repository.reconcileExpiredExtractionLeases(3, 10, new Date(Date.now() + 2_000)),
+    ]);
+    expect(results.reduce((count, result) => count + result.requeued, 0)).toBe(1);
+  });
+
+  it('marks a claim failed with a structured exhaustion failure at the retry limit', async () => {
+    const { repository, document } = await claimed(1);
+    await expect(
+      repository.reconcileExpiredExtractionLeases(2, 10, new Date(Date.now() + 2_000)),
+    ).resolves.toEqual({ requeued: 0, exhausted: 1 });
+    await expect(repository.findDocument('owner-a', document.id)).resolves.toMatchObject({
+      status: 'FAILED',
+      extractionAttempts: 2,
+      extractionFailure: { code: 'EXTRACTION_TIMEOUT', retryable: false },
+    });
   });
 });

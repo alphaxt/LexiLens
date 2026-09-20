@@ -244,7 +244,13 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
     analysis: Audit,
   ): Promise<DocumentRecord | undefined> {
     const updated = await this.client.document.updateMany({
-      where: { id, ownerId, status: 'PROCESSING', extractionLeaseId: leaseId },
+      where: {
+        id,
+        ownerId,
+        status: 'PROCESSING',
+        extractionLeaseId: leaseId,
+        extractionLeaseExpiresAt: { gt: new Date() },
+      },
       data: {
         status: 'COMPLETED',
         sourceText: artifact.canonicalText,
@@ -266,7 +272,13 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
     failure: import('@lexilens/contracts').ExtractionFailure,
   ): Promise<DocumentRecord | undefined> {
     const updated = await this.client.document.updateMany({
-      where: { id, ownerId, status: 'PROCESSING', extractionLeaseId: leaseId },
+      where: {
+        id,
+        ownerId,
+        status: 'PROCESSING',
+        extractionLeaseId: leaseId,
+        extractionLeaseExpiresAt: { gt: new Date() },
+      },
       data: {
         status: 'FAILED',
         extractionArtifact:
@@ -278,6 +290,60 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
       },
     });
     return updated.count ? this.findDocument(ownerId, id) : undefined;
+  }
+
+  async reconcileExpiredExtractionLeases(maxAttempts: number, batchSize: number, now = new Date()) {
+    const candidates = await this.client.document.findMany({
+      where: { status: 'PROCESSING', extractionLeaseExpiresAt: { lte: now } },
+      select: {
+        id: true,
+        extractionAttempts: true,
+        extractionLeaseId: true,
+        extractionLeaseExpiresAt: true,
+      },
+      orderBy: { extractionLeaseExpiresAt: 'asc' },
+      take: batchSize,
+    });
+    let requeued = 0;
+    let exhausted = 0;
+    for (const candidate of candidates) {
+      const baseWhere = {
+        id: candidate.id,
+        status: 'PROCESSING' as const,
+        extractionLeaseId: candidate.extractionLeaseId,
+        extractionLeaseExpiresAt: candidate.extractionLeaseExpiresAt,
+      };
+      if (candidate.extractionAttempts < maxAttempts) {
+        const updated = await this.client.document.updateMany({
+          where: baseWhere,
+          data: {
+            status: 'READY_FOR_EXTRACTION',
+            extractionLeaseId: null,
+            extractionLeaseExpiresAt: null,
+          },
+        });
+        requeued += updated.count;
+      } else {
+        const updated = await this.client.document.updateMany({
+          where: baseWhere,
+          data: {
+            status: 'FAILED',
+            extractionLeaseId: null,
+            extractionLeaseExpiresAt: null,
+            extractionFailure: {
+              code: 'EXTRACTION_TIMEOUT',
+              message: 'Extraction lease expired after the configured retry limit.',
+              retryable: false,
+              occurredAt: now.toISOString(),
+              pageNumber: null,
+            } as unknown as Prisma.InputJsonValue,
+            analysis: Prisma.DbNull,
+          },
+        });
+        exhausted += updated.count;
+      }
+    }
+    return { requeued, exhausted };
   }
 
   async listStorageKeys(ownerId: string): Promise<string[]> {

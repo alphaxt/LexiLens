@@ -83,6 +83,7 @@ model Document {
 
   @@unique([ownerId, activeContentHash])
   @@index([ownerId, status, createdAt])
+  @@index([status, extractionLeaseExpiresAt])
 }
 
 model SecurityEvent {

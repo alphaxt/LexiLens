@@ -4,4 +4,4 @@ export type { Account, Document, Owner, SecurityEvent } from '@prisma/client';
 
 export type PersistenceMode = 'memory' | 'postgresql';
 
-export const DATABASE_SCHEMA_VERSION = '20260922000000_add_extraction_worker';
+export const DATABASE_SCHEMA_VERSION = '20260923000000_add_extraction_lease_reconciliation';
