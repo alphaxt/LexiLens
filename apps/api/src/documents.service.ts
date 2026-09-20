@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type {
   CalendarRequest,
   CreateDocumentInput,
@@ -9,32 +15,39 @@ import type {
 import { processingStatusSchema } from '@lexilens/contracts';
 import { loadConfig } from './config';
 import { PERSISTENCE_PORT, type PersistencePort } from './persistence/persistence.port';
+import {
+  QUARANTINE_STORAGE_PORT,
+  type QuarantineStoragePort,
+} from './storage/quarantine-storage.port';
 import { auditConsumerDocument, detectDomain } from './services/audit-engine';
 import { makeIcsCalendar } from './services/calendar';
-
 @Injectable()
 export class DocumentService {
   private readonly config = loadConfig();
-
-  constructor(@Inject(PERSISTENCE_PORT) private readonly persistence: PersistencePort) {}
-
+  constructor(
+    @Inject(PERSISTENCE_PORT) private readonly persistence: PersistencePort,
+    @Inject(QUARANTINE_STORAGE_PORT)
+    private readonly storage: QuarantineStoragePort = {
+      put: async () => undefined,
+      read: async () => {
+        throw new Error('No private storage configured.');
+      },
+      delete: async () => undefined,
+    },
+  ) {}
   async list(ownerId: string): Promise<DocumentRecord[]> {
     return this.persistence.listDocuments(ownerId);
   }
-
   async create(ownerId: string, input: CreateDocumentInput): Promise<DocumentRecord> {
     const domain = detectDomain(input.text);
-    if (domain === 'HEALTHCARE' && !this.config.ENABLE_HEALTHCARE_ANALYSIS) {
+    if (domain === 'HEALTHCARE' && !this.config.ENABLE_HEALTHCARE_ANALYSIS)
       throw new BadRequestException(
         'Healthcare document analysis is disabled until required privacy and compliance controls are approved. No document was stored.',
       );
-    }
-    if (domain !== 'CONSUMER') {
+    if (domain !== 'CONSUMER')
       throw new BadRequestException(
         `${domain.toLowerCase()} analysis is not enabled in this consumer-document MVP. No document was stored.`,
       );
-    }
-
     const now = new Date().toISOString();
     const contentHash = createHash('sha256').update(input.text).digest('hex');
     const quarantined: DocumentRecord = {
@@ -62,10 +75,8 @@ export class DocumentService {
     };
     const reservation = await this.persistence.reserveDocument(quarantined);
     const working = reservation.document;
-    if (!reservation.created && !['QUARANTINED', 'PROCESSING', 'FAILED'].includes(working.status)) {
+    if (!reservation.created && !['QUARANTINED', 'PROCESSING', 'FAILED'].includes(working.status))
       return working;
-    }
-
     await this.persistence.transitionDocument(
       ownerId,
       working.id,
@@ -92,17 +103,24 @@ export class DocumentService {
       throw error;
     }
   }
-
   async get(ownerId: string, id: string): Promise<DocumentRecord> {
     return this.requireOwned(ownerId, id);
   }
-
   async delete(ownerId: string, id: string): Promise<{ id: string; status: 'DELETED' }> {
+    const record = await this.requireOwned(ownerId, id);
+    if (record.storageKey) {
+      try {
+        await this.storage.delete(record.storageKey);
+      } catch {
+        throw new ServiceUnavailableException(
+          'Private storage cleanup failed; document remains available for retry.',
+        );
+      }
+    }
     const deleted = await this.persistence.softDeleteDocument(ownerId, id);
     if (!deleted) throw new NotFoundException('Document not found.');
     return { id, status: 'DELETED' };
   }
-
   async createDraft(ownerId: string, id: string, request: DraftRequest) {
     const record = await this.requireOwned(ownerId, id);
     if (!record.analysis) throw new NotFoundException('This document has no available analysis.');
@@ -110,7 +128,6 @@ export class DocumentService {
       request.clauseIds.includes(clause.clauseId),
     );
     if (!selected.length) throw new NotFoundException('No selected source clauses were found.');
-
     const changes = selected
       .map((clause) => `• ${clause.category}: ${clause.suggestedRevision}`)
       .join('\n');
@@ -126,7 +143,6 @@ export class DocumentService {
       request.draftType === 'dispute'
         ? 'Please review the cited language, explain the basis for the charge or decision, and correct any error supported by your records.'
         : 'Please confirm whether these balanced revisions can be considered.';
-
     return {
       recipientRole: request.recipientRole,
       subjectLine:
@@ -141,7 +157,6 @@ export class DocumentService {
         'Review this educational draft for factual accuracy and seek qualified advice when appropriate.',
     };
   }
-
   async createCalendar(ownerId: string, id: string, request: CalendarRequest): Promise<string> {
     const record = await this.requireOwned(ownerId, id);
     if (!record.analysis) throw new NotFoundException('This document has no available analysis.');
@@ -151,7 +166,6 @@ export class DocumentService {
     });
     return makeIcsCalendar(record.title, confirmed);
   }
-
   private async requireOwned(ownerId: string, id: string): Promise<DocumentRecord> {
     const record = await this.persistence.findDocument(ownerId, id);
     if (!record) throw new NotFoundException('Document not found.');

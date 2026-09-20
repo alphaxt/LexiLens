@@ -1,4 +1,5 @@
-# Template only: no credentials, account IDs, domains, or remote state configuration are included.
+# Reference architecture only: it is deliberately fail-closed until an approved operator explicitly
+# acknowledges the prerequisite runbook. It must not be treated as a deployable stack or applied by CI.
 # Apply requires explicit user approval and reviewed values for every TODO variable.
 locals {
   name = "lexilens-${var.stage}"
@@ -13,7 +14,12 @@ data "aws_caller_identity" "current" {}
 resource "aws_kms_key" "quarantine" {
   description             = "${local.name} private document quarantine encryption"
   deletion_window_in_days = 30
-  enable_key_rotation     = true
+  lifecycle {
+    precondition {
+      condition     = var.acknowledge_reference_architecture
+      error_message = "This is a non-deployable reference architecture until the runbook prerequisites are approved. Set acknowledge_reference_architecture=true only after review; do not apply from this repository by default."
+    }
+  }
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -140,7 +146,7 @@ resource "aws_iam_role_policy" "task" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${aws_s3_bucket.quarantine.arn}/*" },
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${aws_s3_bucket.quarantine.arn}/*" },
       { Effect = "Allow", Action = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"], Resource = aws_kms_key.quarantine.arn },
       { Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:SendMessage", "sqs:GetQueueAttributes"], Resource = [aws_sqs_queue.extraction.arn, aws_sqs_queue.extraction_dlq.arn] },
     ]

@@ -15,7 +15,17 @@ import { Readable } from 'node:stream';
 import { loadConfig } from './config';
 import { PERSISTENCE_PORT, type PersistencePort } from './persistence/persistence.port';
 
-const allowedMime = new Set(['text/plain', 'application/pdf', 'image/png', 'image/jpeg']);
+const developmentFixtureMime = new Set([
+  'text/plain',
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+]);
+function allowedMime(mimeType: string, nodeEnv: string): boolean {
+  return nodeEnv === 'production'
+    ? mimeType === 'text/plain'
+    : developmentFixtureMime.has(mimeType);
+}
 function safeFilename(name: string): string {
   return (
     name
@@ -53,8 +63,10 @@ export class UploadService {
       stream: AsyncIterable<Buffer | string>;
     },
   ): Promise<DocumentMetadata> {
-    if (!allowedMime.has(input.mimeType))
-      throw new BadRequestException('Unsupported file MIME type.');
+    if (!allowedMime(input.mimeType, this.config.NODE_ENV))
+      throw new BadRequestException(
+        'Only text/plain uploads are supported in production until sandboxed PDF/OCR processing is deployed.',
+      );
     const chunks: Buffer[] = [];
     let size = 0;
     const hash = createHash('sha256');
@@ -125,6 +137,19 @@ export class UploadService {
         rejectionCode: null,
       });
       return clientMetadata(updated ?? clean!);
+    }
+    // A rejected object is not retained. If delete fails, preserve its retryable record and report failure.
+    try {
+      await this.storage.delete(key);
+    } catch {
+      await this.persistence.updateUploadMetadata(ownerId, id, {
+        detectedMime: null,
+        scanResult: 'ERROR',
+        rejectionCode: 'SCANNER_ERROR',
+      });
+      throw new ServiceUnavailableException(
+        'Scanner rejected the upload and private cleanup is pending; retry reconciliation.',
+      );
     }
     const rejected = await this.persistence.transitionDocument(ownerId, id, 'REJECTED', null);
     const updated = await this.persistence.updateUploadMetadata(ownerId, id, {

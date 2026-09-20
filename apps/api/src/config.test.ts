@@ -14,7 +14,9 @@ const productionOidc = {
   S3_BUCKET: 'lexilens-private',
   S3_ACCESS_KEY_ID: 'key',
   S3_SECRET_ACCESS_KEY: 'secret',
-  SCANNER_MODE: 'magic',
+  SCANNER_MODE: 'configured',
+  SCANNER_ENDPOINT: 'https://scanner.example.com/scan',
+  SCANNER_VERSION: 'reviewed-v1',
 } as const;
 
 describe('runtime configuration', () => {
@@ -60,7 +62,7 @@ describe('runtime configuration', () => {
   it('requires local mode to bind only to loopback', () => {
     expect(() =>
       loadConfig({ NODE_ENV: 'development', AUTH_MODE: 'local', HOST: '0.0.0.0' }),
-    ).toThrow('Local authentication mode requires a loopback HOST');
+    ).toThrow('Local authentication mode is only permitted');
   });
 
   it('requires issuer, explicit JWKS URI, and audience in OIDC mode', () => {
@@ -86,10 +88,23 @@ describe('runtime configuration', () => {
     ).toThrow('JWKS URI must use HTTPS');
   });
 
-  it('accepts complete production OIDC and PostgreSQL configuration', () => {
+  it('rejects magic scanner selection in production and requires configured scanner details', () => {
+    expect(() => loadConfig({ ...productionOidc, SCANNER_MODE: 'magic' })).toThrow(
+      'SCANNER_MODE=configured',
+    );
+    expect(() => loadConfig({ NODE_ENV: 'test', SCANNER_MODE: 'configured' })).toThrow(
+      'SCANNER_ENDPOINT is required',
+    );
+    expect(() =>
+      loadConfig({ ...productionOidc, SCANNER_ENDPOINT: 'http://scanner.example.com/scan' }),
+    ).toThrow('scanner endpoint must use HTTPS');
+  });
+
+  it('accepts complete production OIDC, PostgreSQL, and configured scanner configuration', () => {
     expect(loadConfig(productionOidc)).toMatchObject({
       AUTH_MODE: 'oidc',
       PERSISTENCE_MODE: 'postgresql',
+      SCANNER_MODE: 'configured',
     });
   });
 });

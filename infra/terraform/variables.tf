@@ -1,3 +1,9 @@
+variable "acknowledge_reference_architecture" {
+  type        = bool
+  default     = false
+  description = "Safety interlock: this reference architecture cannot be planned/applied unless an approved operator explicitly sets this true after completing the runbook."
+}
+
 variable "aws_region" {
   type = string
 }

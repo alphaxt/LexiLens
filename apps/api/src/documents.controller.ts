@@ -21,7 +21,7 @@ import {
   draftRequestSchema,
 } from '@lexilens/contracts';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { RequireScopeGuard } from './auth/require-scope.guard';
+import { RequireScope, RequireScopeGuard } from './auth/require-scope.guard';
 import { type AuthPrincipal, CurrentPrincipal, IdentityGuard } from './auth/identity';
 import { loadConfig } from './config';
 import { DocumentService } from './documents.service';
@@ -36,29 +36,21 @@ const config = loadConfig();
 @Controller('health')
 export class HealthController {
   constructor(@Inject(PERSISTENCE_PORT) private readonly persistence: PersistencePort) {}
-
   @Get()
   async status() {
     const persistence = await this.persistence.health();
-    if (!persistence.healthy) {
+    if (!persistence.healthy)
       throw new ServiceUnavailableException({
         status: 'unavailable',
         service: 'lexilens-api',
         authMode: config.AUTH_MODE,
-        persistence: {
-          mode: persistence.mode,
-          schemaVersion: persistence.schemaVersion,
-        },
+        persistence: { mode: persistence.mode, schemaVersion: persistence.schemaVersion },
       });
-    }
     return {
       status: 'ok' as const,
       service: 'lexilens-api',
       authMode: config.AUTH_MODE,
-      persistence: {
-        mode: persistence.mode,
-        schemaVersion: persistence.schemaVersion,
-      },
+      persistence: { mode: persistence.mode, schemaVersion: persistence.schemaVersion },
     };
   }
 }
@@ -68,9 +60,9 @@ export class HealthController {
 @ApiHeader({
   name: 'x-local-session-id',
   required: false,
-  description: 'Development-only UUID used when AUTH_MODE=local. Never production authentication.',
+  description: 'Development/test-only UUID used only with loopback AUTH_MODE=local.',
 })
-@UseGuards(IdentityGuard)
+@UseGuards(IdentityGuard, RequireScopeGuard)
 @Controller('documents')
 export class DocumentsController {
   constructor(
@@ -81,15 +73,17 @@ export class DocumentsController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'List documents owned by the authenticated principal' })
+  @RequireScope('documents:read')
   async list(@CurrentPrincipal() principal: AuthPrincipal) {
     return this.documents.list(principal.ownerId);
   }
 
   @Post('uploads')
   @HttpCode(201)
-  @UseGuards(RequireScopeGuard)
-  @ApiOperation({ summary: 'Privately upload one file for quarantine scanning' })
+  @RequireScope('documents:write')
+  @ApiOperation({
+    summary: 'Privately upload one production-supported text file for quarantine scanning',
+  })
   async upload(@CurrentPrincipal() principal: AuthPrincipal, @Req() request: FastifyRequest) {
     const multipart = await request.file();
     if (!multipart) throw new BadRequestException('Exactly one file is required.');
@@ -97,8 +91,7 @@ export class DocumentsController {
     const title = typeof fields.title?.value === 'string' ? fields.title.value.trim() : '';
     if (!title || title.length > 180)
       throw new BadRequestException('A title between 1 and 180 characters is required.');
-    const second = await request.file();
-    if (second) throw new BadRequestException('Exactly one file is required.');
+    if (await request.file()) throw new BadRequestException('Exactly one file is required.');
     return this.uploads.upload(principal.ownerId, {
       title,
       filename: multipart.filename,
@@ -109,38 +102,38 @@ export class DocumentsController {
 
   @Post()
   @HttpCode(201)
-  @ApiOperation({ summary: 'Submit raw text for validated consumer-document screening' })
+  @RequireScope('documents:write')
   async create(@CurrentPrincipal() principal: AuthPrincipal, @Body() body: unknown) {
     const parsed = createDocumentSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
-    if (parsed.data.text.length > config.MAX_TEXT_CHARACTERS) {
+    if (parsed.data.text.length > config.MAX_TEXT_CHARACTERS)
       throw new BadRequestException(
         `Document text exceeds the configured ${config.MAX_TEXT_CHARACTERS} character limit.`,
       );
-    }
     return this.documents.create(principal.ownerId, parsed.data);
   }
 
   @Get(':id')
+  @RequireScope('documents:read')
   async get(@CurrentPrincipal() principal: AuthPrincipal, @Param('id') id: string) {
     return this.documents.get(principal.ownerId, id);
   }
 
   @Delete(':id')
+  @RequireScope('documents:write')
   async delete(@CurrentPrincipal() principal: AuthPrincipal, @Param('id') id: string) {
     return this.documents.delete(principal.ownerId, id);
   }
 
+  /** Internal-only bounded worker boundary. It remains scope-gated and is not a public scheduler. */
   @Post('reconcile-extraction')
-  @UseGuards(RequireScopeGuard)
-  @ApiOperation({ summary: 'Request bounded reconciliation of expired extraction leases' })
+  @RequireScope('documents:write')
   async reconcileExtractionLeases() {
     return this.worker.reconcileExpiredLeases();
   }
 
   @Post(':id/extraction')
-  @UseGuards(RequireScopeGuard)
-  @ApiOperation({ summary: 'Request safe extraction processing for one owned, clean upload' })
+  @RequireScope('documents:write')
   async extract(@CurrentPrincipal() principal: AuthPrincipal, @Param('id') id: string) {
     const document = await this.extraction.process(principal.ownerId, id);
     if (!document)
@@ -160,6 +153,7 @@ export class DocumentsController {
   }
 
   @Post(':id/drafts')
+  @RequireScope('documents:read')
   async draft(
     @CurrentPrincipal() principal: AuthPrincipal,
     @Param('id') id: string,
@@ -171,6 +165,7 @@ export class DocumentsController {
   }
 
   @Post(':id/calendar')
+  @RequireScope('documents:read')
   async calendar(
     @CurrentPrincipal() principal: AuthPrincipal,
     @Param('id') id: string,

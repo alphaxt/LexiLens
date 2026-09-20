@@ -13,14 +13,14 @@ export class S3QuarantineStorageAdapter implements QuarantineStoragePort {
     endpoint: string,
     private readonly bucket: string,
     region: string,
-    accessKeyId: string,
-    secretAccessKey: string,
+    accessKeyId?: string,
+    secretAccessKey?: string,
   ) {
     this.client = new S3Client({
       endpoint,
       region,
       forcePathStyle: true,
-      credentials: { accessKeyId, secretAccessKey },
+      ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
     });
   }
   async put(key: string, stream: Readable) {
