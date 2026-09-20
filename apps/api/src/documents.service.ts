@@ -134,6 +134,14 @@ export class DocumentService {
     return makeIcsCalendar(record.title, confirmed);
   }
 
+  purgeOwner(ownerId: string): number {
+    const ownedIds = [...this.records.values()]
+      .filter((record) => record.ownerId === ownerId)
+      .map((record) => record.id);
+    for (const id of ownedIds) this.records.delete(id);
+    return ownedIds.length;
+  }
+
   private requireOwned(ownerId: string, id: string): DocumentRecord {
     const record = this.records.get(id);
     if (!record || record.ownerId !== ownerId || record.status === 'DELETED') {

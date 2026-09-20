@@ -34,3 +34,20 @@ describe('LexiLens contracts', () => {
     expect(() => auditSchema.parse({})).toThrow();
   });
 });
+
+describe('privacy contracts', () => {
+  it('requires an explicit preference change', async () => {
+    const { updatePrivacyPreferencesSchema } = await import('./index.js');
+    expect(() => updatePrivacyPreferencesSchema.parse({})).toThrow('At least one');
+  });
+
+  it('accepts bounded consent versions and retention policies', async () => {
+    const { updatePrivacyPreferencesSchema } = await import('./index.js');
+    expect(
+      updatePrivacyPreferencesSchema.parse({
+        retentionPolicy: '30_DAYS',
+        acceptConsentVersion: 'privacy-2026-09',
+      }),
+    ).toEqual({ retentionPolicy: '30_DAYS', acceptConsentVersion: 'privacy-2026-09' });
+  });
+});

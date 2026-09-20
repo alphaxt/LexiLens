@@ -135,3 +135,44 @@ export type ProcessingStatus = z.infer<typeof processingStatusSchema>;
 export type CreateDocumentInput = z.infer<typeof createDocumentSchema>;
 export type DraftRequest = z.infer<typeof draftRequestSchema>;
 export type CalendarRequest = z.infer<typeof calendarRequestSchema>;
+
+export const retentionPolicySchema = z.enum(['SESSION', '7_DAYS', '30_DAYS', '90_DAYS']);
+
+export const privacyPreferencesSchema = z.object({
+  retentionPolicy: retentionPolicySchema,
+  consentAccepted: z.boolean(),
+  consentVersion: z.string().min(1).nullable(),
+  consentedAt: z.string().datetime().nullable(),
+});
+
+export const updatePrivacyPreferencesSchema = z
+  .object({
+    retentionPolicy: retentionPolicySchema.optional(),
+    acceptConsentVersion: z.string().trim().min(1).max(50).optional(),
+  })
+  .refine(
+    (input) => input.retentionPolicy !== undefined || input.acceptConsentVersion !== undefined,
+    {
+      message: 'At least one privacy preference must be supplied.',
+    },
+  );
+
+export const accountSchema = z.object({
+  ownerId: z.string().min(1),
+  subject: z.string().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  privacy: privacyPreferencesSchema,
+});
+
+export const securityEventSchema = z.object({
+  id: z.string().uuid(),
+  type: z.enum(['ACCOUNT_INITIALIZED', 'PRIVACY_UPDATED', 'DATA_EXPORTED', 'ACCOUNT_DELETED']),
+  occurredAt: z.string().datetime(),
+  actorMode: z.enum(['local', 'oidc']),
+});
+
+export type Account = z.infer<typeof accountSchema>;
+export type PrivacyPreferences = z.infer<typeof privacyPreferencesSchema>;
+export type UpdatePrivacyPreferences = z.infer<typeof updatePrivacyPreferencesSchema>;
+export type SecurityEvent = z.infer<typeof securityEventSchema>;
