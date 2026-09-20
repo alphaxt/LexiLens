@@ -1,8 +1,13 @@
 'use client';
 
 import type { Clause, DocumentRecord } from '@lexilens/contracts';
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { riskLabel, sliceSource } from '../lib/presentation';
+import {
+  mergeDocumentHistory,
+  removeFromDocumentHistory,
+  validateTextFile,
+} from '../lib/workspace';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const SAMPLE = `SERVICE MEMBERSHIP TERMS\n\nYour membership will automatically renew for another twelve-month term unless you provide written notice 30 days before the renewal date.\n\nA $75 late fee may be assessed for each late payment. The Company may modify these terms at any time in its sole discretion.\n\nAll disputes must be resolved by binding arbitration. You waive the right to bring or join a class action.`;
@@ -24,6 +29,7 @@ export default function HomePage() {
   const [title, setTitle] = useState('Membership agreement');
   const [text, setText] = useState(SAMPLE);
   const [documentRecord, setDocumentRecord] = useState<DocumentRecord | null>(null);
+  const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [selectedClauseId, setSelectedClauseId] = useState<string | null>(null);
   const [selectedClauseIds, setSelectedClauseIds] = useState<string[]>([]);
   const [draft, setDraft] = useState<string | null>(null);
@@ -33,6 +39,7 @@ export default function HomePage() {
   const [confirmedDate, setConfirmedDate] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
   const evidenceRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -40,6 +47,19 @@ export default function HomePage() {
     const id = stored ?? window.crypto.randomUUID();
     window.localStorage.setItem('lexilens-local-session', id);
     setSessionId(id);
+    setHistoryBusy(true);
+    fetch(`${API_URL}/documents`, { headers: { 'x-local-session-id': id } })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Document history could not be loaded.');
+        return (await response.json()) as DocumentRecord[];
+      })
+      .then(setDocuments)
+      .catch((caught: unknown) => {
+        setError(
+          caught instanceof Error ? caught.message : 'Document history could not be loaded.',
+        );
+      })
+      .finally(() => setHistoryBusy(false));
   }, []);
 
   const analysis = documentRecord?.analysis ?? null;
@@ -57,6 +77,52 @@ export default function HomePage() {
       ...(withJson ? { 'content-type': 'application/json' } : {}),
       'x-local-session-id': sessionId,
     };
+  }
+
+  function openDocument(record: DocumentRecord) {
+    setDocumentRecord(record);
+    setSelectedClauseId(record.analysis?.clauses[0]?.clauseId ?? null);
+    setSelectedClauseIds([]);
+    setDraft(null);
+    setError(null);
+  }
+
+  async function refreshDocuments() {
+    if (!sessionId) return;
+    setHistoryBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_URL}/documents`, { headers: headers() });
+      if (!response.ok) throw new Error('Document history could not be refreshed.');
+      setDocuments((await response.json()) as DocumentRecord[]);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Document history could not be refreshed.',
+      );
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
+  async function importTextFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const validationError = validateTextFile(file);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    try {
+      const importedText = await file.text();
+      if (!importedText.trim())
+        throw new Error('The selected text file contains no readable text.');
+      setTitle(file.name.replace(/\.txt$/i, ''));
+      setText(importedText);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The text file could not be read.');
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -77,6 +143,7 @@ export default function HomePage() {
       }
       const result = (await response.json()) as DocumentRecord;
       setDocumentRecord(result);
+      setDocuments((current) => mergeDocumentHistory(current, result));
       setSelectedClauseId(result.analysis?.clauses[0]?.clauseId ?? null);
       setSelectedClauseIds([]);
     } catch (caught) {
@@ -159,7 +226,9 @@ export default function HomePage() {
       setError('The local document could not be deleted.');
       return;
     }
+    setDocuments((current) => removeFromDocumentHistory(current, documentRecord.id));
     setDocumentRecord(null);
+    setSelectedClauseId(null);
     setDraft(null);
     setSelectedClauseIds([]);
   }
@@ -206,6 +275,16 @@ export default function HomePage() {
             onChange={(event) => setTitle(event.target.value)}
             required
           />
+          <div className="file-import">
+            <label htmlFor="text-file">Import a .txt file</label>
+            <input
+              id="text-file"
+              type="file"
+              accept=".txt,text/plain"
+              onChange={(event) => void importTextFile(event)}
+            />
+            <small>The file is read in your browser, then you choose when to screen it.</small>
+          </div>
           <label htmlFor="document-text">Consumer agreement text</label>
           <textarea
             id="document-text"
@@ -222,6 +301,51 @@ export default function HomePage() {
         {error && (
           <p className="error" role="alert">
             {error}
+          </p>
+        )}
+      </section>
+
+      <section className="workspace-history" aria-labelledby="history-title">
+        <div className="history-heading">
+          <div>
+            <p className="eyebrow">Local session workspace</p>
+            <h2 id="history-title">Document history</h2>
+          </div>
+          <button
+            type="button"
+            className="secondary compact"
+            onClick={() => void refreshDocuments()}
+            disabled={!sessionId || historyBusy}
+          >
+            {historyBusy ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+        {documents.length ? (
+          <div className="history-list">
+            {documents.map((record) => {
+              const signals = record.analysis?.clauses.filter(
+                (clause) => clause.riskLevel !== 'SAFE',
+              ).length;
+              return (
+                <button
+                  type="button"
+                  className="history-item"
+                  aria-pressed={documentRecord?.id === record.id}
+                  key={record.id}
+                  onClick={() => openDocument(record)}
+                >
+                  <span>
+                    <strong>{record.title}</strong>
+                    <small>{new Date(record.updatedAt).toLocaleString()}</small>
+                  </span>
+                  <span className="history-status">{signals ?? 0} signals</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="history-empty">
+            {historyBusy ? 'Loading local documents…' : 'No documents in this local session yet.'}
           </p>
         )}
       </section>
