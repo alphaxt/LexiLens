@@ -49,7 +49,8 @@ export default function HomePage() {
     : null;
   const source = sliceSource(documentRecord?.sourceText ?? '', selectedRange);
   const trapCount = analysis?.clauses.filter((clause) => clause.riskLevel === 'TRAP').length ?? 0;
-  const cautionCount = analysis?.clauses.filter((clause) => clause.riskLevel === 'CAUTION').length ?? 0;
+  const cautionCount =
+    analysis?.clauses.filter((clause) => clause.riskLevel === 'CAUTION').length ?? 0;
 
   function headers(withJson = false): HeadersInit {
     return {
@@ -87,7 +88,10 @@ export default function HomePage() {
 
   function chooseClause(clause: Clause) {
     setSelectedClauseId(clause.clauseId);
-    window.setTimeout(() => evidenceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+    window.setTimeout(
+      () => evidenceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+      0,
+    );
   }
 
   function toggleClause(clauseId: string) {
@@ -104,7 +108,12 @@ export default function HomePage() {
       const response = await fetch(`${API_URL}/documents/${documentRecord.id}/drafts`, {
         method: 'POST',
         headers: headers(true),
-        body: JSON.stringify({ clauseIds: selectedClauseIds, recipientRole, tone: draftTone, draftType }),
+        body: JSON.stringify({
+          clauseIds: selectedClauseIds,
+          recipientRole,
+          tone: draftTone,
+          draftType,
+        }),
       });
       if (!response.ok) throw new Error('The draft could not be generated.');
       const result = (await response.json()) as { formalLetterDraft: string };
@@ -134,7 +143,10 @@ export default function HomePage() {
 
   function exportData() {
     if (!documentRecord) return;
-    saveBlob(new Blob([JSON.stringify(documentRecord, null, 2)], { type: 'application/json' }), 'lexilens-audit.json');
+    saveBlob(
+      new Blob([JSON.stringify(documentRecord, null, 2)], { type: 'application/json' }),
+      'lexilens-audit.json',
+    );
   }
 
   async function deleteDocument() {
@@ -155,34 +167,63 @@ export default function HomePage() {
   return (
     <main>
       <header className="site-header">
-        <div className="brand" aria-label="LexiLens home"><span aria-hidden>◈</span> LexiLens</div>
+        <div className="brand" aria-label="LexiLens home">
+          <span aria-hidden>◈</span> LexiLens
+        </div>
         <p>Evidence-first document X-Ray</p>
       </header>
 
       <section className="hero" aria-labelledby="page-title">
         <p className="eyebrow">Consumer agreement screening</p>
         <h1 id="page-title">Know what your agreement says—before it costs you.</h1>
-        <p className="lede">Screen consumer-service terms in plain language, trace every signal to its exact source, and prepare an editable discussion draft.</p>
+        <p className="lede">
+          Screen consumer-service terms in plain language, trace every signal to its exact source,
+          and prepare an editable discussion draft.
+        </p>
       </section>
 
       <section className="disclaimer" role="note">
-        <strong>Important:</strong> This local MVP finds a limited set of wording patterns. It is not legal, medical, or financial advice and cannot determine enforceability or prove a document is safe.
+        <strong>Important:</strong> This local MVP finds a limited set of wording patterns. It is
+        not legal, medical, or financial advice and cannot determine enforceability or prove a
+        document is safe.
       </section>
 
       <section className="ingest" aria-labelledby="ingest-title">
         <div>
           <p className="eyebrow">Local development demo</p>
           <h2 id="ingest-title">Screen consumer agreement text</h2>
-          <p>Paste raw text only. The API is bound to this computer and uses a random browser session, but this is not production authentication or encrypted persistent storage.</p>
+          <p>
+            Paste raw text only. The API is bound to this computer and uses a random browser
+            session, but this is not production authentication or encrypted persistent storage.
+          </p>
         </div>
         <form onSubmit={submit}>
           <label htmlFor="title">Document title</label>
-          <input id="title" value={title} maxLength={180} onChange={(event) => setTitle(event.target.value)} required />
+          <input
+            id="title"
+            value={title}
+            maxLength={180}
+            onChange={(event) => setTitle(event.target.value)}
+            required
+          />
           <label htmlFor="document-text">Consumer agreement text</label>
-          <textarea id="document-text" value={text} maxLength={250000} onChange={(event) => setText(event.target.value)} required rows={9} />
-          <button type="submit" disabled={busy || !sessionId}>{busy ? 'Screening…' : 'Run document X-Ray'}</button>
+          <textarea
+            id="document-text"
+            value={text}
+            maxLength={250000}
+            onChange={(event) => setText(event.target.value)}
+            required
+            rows={9}
+          />
+          <button type="submit" disabled={busy || !sessionId}>
+            {busy ? 'Screening…' : 'Run document X-Ray'}
+          </button>
         </form>
-        {error && <p className="error" role="alert">{error}</p>}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
       </section>
 
       {analysis && documentRecord && (
@@ -193,39 +234,89 @@ export default function HomePage() {
               <h2 id="results-title">{analysis.documentMetadata.documentTitle}</h2>
               <p>{analysis.documentMetadata.executiveSummary}</p>
             </div>
-            <div className="risk-score" aria-label={`${trapCount} high-risk and ${cautionCount} caution signals`}>
-              <strong>{trapCount + cautionCount}</strong><span>review signals</span>
+            <div
+              className="risk-score"
+              aria-label={`${trapCount} high-risk and ${cautionCount} caution signals`}
+            >
+              <strong>{trapCount + cautionCount}</strong>
+              <span>review signals</span>
             </div>
           </div>
 
-          <div className="notice-list">{analysis.disclaimerFlags.map((flag) => <span key={flag}>ⓘ {flag}</span>)}</div>
+          <div className="notice-list">
+            {analysis.disclaimerFlags.map((flag) => (
+              <span key={flag}>ⓘ {flag}</span>
+            ))}
+          </div>
 
           <div className="xray-grid">
             <article className="source-pane" aria-labelledby="source-title">
-              <div className="pane-heading"><p className="eyebrow">Original document</p><h3 id="source-title">Source text</h3></div>
+              <div className="pane-heading">
+                <p className="eyebrow">Original document</p>
+                <h3 id="source-title">Source text</h3>
+              </div>
               <div className="source-content">
                 <span>{source.before}</span>
-                {source.selected && <mark ref={evidenceRef} className="source-highlight">{source.selected}</mark>}
+                {source.selected && (
+                  <mark ref={evidenceRef} className="source-highlight">
+                    {source.selected}
+                  </mark>
+                )}
                 <span>{source.after}</span>
               </div>
             </article>
 
             <article className="audit-pane" aria-labelledby="audit-title">
-              <div className="pane-heading"><p className="eyebrow">What this may mean</p><h3 id="audit-title">Review signals</h3></div>
+              <div className="pane-heading">
+                <p className="eyebrow">What this may mean</p>
+                <h3 id="audit-title">Review signals</h3>
+              </div>
               <div className="clause-list">
-                {!analysis.clauses.length && <div className="empty-state"><strong>No supported signal found.</strong><p>This limited screening cannot label the agreement safe. Review all terms before acting.</p></div>}
+                {!analysis.clauses.length && (
+                  <div className="empty-state">
+                    <strong>No supported signal found.</strong>
+                    <p>
+                      This limited screening cannot label the agreement safe. Review all terms
+                      before acting.
+                    </p>
+                  </div>
+                )}
                 {analysis.clauses.map((clause) => (
-                  <article className={`clause-card ${clause.riskLevel.toLowerCase()}`} key={clause.clauseId}>
-                    <button className="clause-open" onClick={() => chooseClause(clause)} aria-expanded={selectedClauseId === clause.clauseId}>
+                  <article
+                    className={`clause-card ${clause.riskLevel.toLowerCase()}`}
+                    key={clause.clauseId}
+                  >
+                    <button
+                      className="clause-open"
+                      onClick={() => chooseClause(clause)}
+                      aria-expanded={selectedClauseId === clause.clauseId}
+                    >
                       <span className="risk-chip">{riskLabel(clause.riskLevel)}</span>
-                      <span><strong>{clause.category}</strong><small>Evidence confidence {Math.round(clause.confidence * 100)}%</small></span>
+                      <span>
+                        <strong>{clause.category}</strong>
+                        <small>Evidence confidence {Math.round(clause.confidence * 100)}%</small>
+                      </span>
                       <span aria-hidden>↗</span>
                     </button>
-                    {selectedClauseId === clause.clauseId && <div className="clause-detail">
-                      <p>{clause.plainLanguageSummary}</p><p><strong>Why it matters:</strong> {clause.riskReasoning}</p>
-                      <p><strong>Balanced alternative:</strong> {clause.suggestedRevision}</p>
-                      <label className="select-clause"><input type="checkbox" checked={selectedClauseIds.includes(clause.clauseId)} onChange={() => toggleClause(clause.clauseId)} /> Include this cited term in a draft</label>
-                    </div>}
+                    {selectedClauseId === clause.clauseId && (
+                      <div className="clause-detail">
+                        <p>{clause.plainLanguageSummary}</p>
+                        <p>
+                          <strong>Why it matters:</strong> {clause.riskReasoning}
+                        </p>
+                        <p>
+                          <strong>Balanced alternative:</strong> {clause.suggestedRevision}
+                        </p>
+                        <label className="select-clause">
+                          <input
+                            type="checkbox"
+                            checked={selectedClauseIds.includes(clause.clauseId)}
+                            onChange={() => toggleClause(clause.clauseId)}
+                          />{' '}
+                          Include this cited term in a draft
+                        </label>
+                      </div>
+                    )}
                   </article>
                 ))}
               </div>
@@ -233,14 +324,98 @@ export default function HomePage() {
           </div>
 
           <div className="insights-grid">
-            <article><p className="eyebrow">Potential cost</p><h3>{analysis.financialSummary.maximumLiabilityExposure}</h3><p>{analysis.financialSummary.potentialHiddenFees}</p><small>{analysis.financialSummary.calculationBreakdown[0]?.formula}</small></article>
-            <article><p className="eyebrow">Exit requirements</p>{analysis.timelineChecklist.length ? analysis.timelineChecklist.map((item) => <div key={item.step}><p><strong>{item.task}</strong></p><label htmlFor={`deadline-${item.step}`}>Confirm the relevant deadline</label><input id={`deadline-${item.step}`} type="date" value={confirmedDate} onChange={(event) => setConfirmedDate(event.target.value)} /><button onClick={exportCalendar} disabled={!confirmedDate}>Download .ics calendar</button></div>) : <p>No supported cancellation deadline signal was found.</p>}</article>
-            <article><p className="eyebrow">Resolution drafts</p><label htmlFor="recipient">Recipient</label><input id="recipient" value={recipientRole} onChange={(event) => setRecipientRole(event.target.value)} /><div className="field-row"><label>Draft type<select value={draftType} onChange={(event) => setDraftType(event.target.value as DraftType)}><option value="counter-proposal">Counter-proposal</option><option value="dispute">Dispute</option></select></label><label>Tone<select value={draftTone} onChange={(event) => setDraftTone(event.target.value as DraftTone)}><option value="collaborative">Collaborative</option><option value="firm">Firm</option></select></label></div><button onClick={generateDraft} disabled={busy || !selectedClauseIds.length}>{selectedClauseIds.length ? `Create draft (${selectedClauseIds.length})` : 'Select a cited term'}</button></article>
+            <article>
+              <p className="eyebrow">Potential cost</p>
+              <h3>{analysis.financialSummary.maximumLiabilityExposure}</h3>
+              <p>{analysis.financialSummary.potentialHiddenFees}</p>
+              <small>{analysis.financialSummary.calculationBreakdown[0]?.formula}</small>
+            </article>
+            <article>
+              <p className="eyebrow">Exit requirements</p>
+              {analysis.timelineChecklist.length ? (
+                analysis.timelineChecklist.map((item) => (
+                  <div key={item.step}>
+                    <p>
+                      <strong>{item.task}</strong>
+                    </p>
+                    <label htmlFor={`deadline-${item.step}`}>Confirm the relevant deadline</label>
+                    <input
+                      id={`deadline-${item.step}`}
+                      type="date"
+                      value={confirmedDate}
+                      onChange={(event) => setConfirmedDate(event.target.value)}
+                    />
+                    <button onClick={exportCalendar} disabled={!confirmedDate}>
+                      Download .ics calendar
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p>No supported cancellation deadline signal was found.</p>
+              )}
+            </article>
+            <article>
+              <p className="eyebrow">Resolution drafts</p>
+              <label htmlFor="recipient">Recipient</label>
+              <input
+                id="recipient"
+                value={recipientRole}
+                onChange={(event) => setRecipientRole(event.target.value)}
+              />
+              <div className="field-row">
+                <label>
+                  Draft type
+                  <select
+                    value={draftType}
+                    onChange={(event) => setDraftType(event.target.value as DraftType)}
+                  >
+                    <option value="counter-proposal">Counter-proposal</option>
+                    <option value="dispute">Dispute</option>
+                  </select>
+                </label>
+                <label>
+                  Tone
+                  <select
+                    value={draftTone}
+                    onChange={(event) => setDraftTone(event.target.value as DraftTone)}
+                  >
+                    <option value="collaborative">Collaborative</option>
+                    <option value="firm">Firm</option>
+                  </select>
+                </label>
+              </div>
+              <button onClick={generateDraft} disabled={busy || !selectedClauseIds.length}>
+                {selectedClauseIds.length
+                  ? `Create draft (${selectedClauseIds.length})`
+                  : 'Select a cited term'}
+              </button>
+            </article>
           </div>
 
-          {draft && <section className="draft" aria-labelledby="draft-title"><div><p className="eyebrow">Editable educational draft</p><h3 id="draft-title">Verify every fact before using</h3></div><textarea aria-label="Editable resolution draft" value={draft} onChange={(event) => setDraft(event.target.value)} rows={13} /><button onClick={() => void navigator.clipboard.writeText(draft)}>Copy draft</button></section>}
+          {draft && (
+            <section className="draft" aria-labelledby="draft-title">
+              <div>
+                <p className="eyebrow">Editable educational draft</p>
+                <h3 id="draft-title">Verify every fact before using</h3>
+              </div>
+              <textarea
+                aria-label="Editable resolution draft"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                rows={13}
+              />
+              <button onClick={() => void navigator.clipboard.writeText(draft)}>Copy draft</button>
+            </section>
+          )}
 
-          <section className="data-actions" aria-label="Local data controls"><button className="secondary" onClick={exportData}>Export audit data</button><button className="danger" onClick={deleteDocument}>Delete local document</button></section>
+          <section className="data-actions" aria-label="Local data controls">
+            <button className="secondary" onClick={exportData}>
+              Export audit data
+            </button>
+            <button className="danger" onClick={deleteDocument}>
+              Delete local document
+            </button>
+          </section>
         </section>
       )}
     </main>

@@ -1,7 +1,11 @@
 import type { Clause } from '@lexilens/contracts';
 
 export function riskLabel(level: Clause['riskLevel']): string {
-  return level === 'TRAP' ? 'High risk' : level === 'CAUTION' ? 'Review carefully' : 'Standard signal';
+  return level === 'TRAP'
+    ? 'High risk'
+    : level === 'CAUTION'
+      ? 'Review carefully'
+      : 'Standard signal';
 }
 
 export function sliceSource(

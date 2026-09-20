@@ -24,7 +24,9 @@ import { DocumentService } from './documents.service';
 const config = loadConfig();
 
 function ownerFromHeader(value: string | undefined): string {
-  const parsed = value ? /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) : false;
+  const parsed = value
+    ? /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    : false;
   if (!parsed) throw new UnauthorizedException('A valid local session identity is required.');
   return value!;
 }
@@ -39,7 +41,11 @@ export class HealthController {
 }
 
 @ApiTags('documents')
-@ApiHeader({ name: 'x-local-session-id', required: true, description: 'Random local-development session ID; replace with OIDC in production.' })
+@ApiHeader({
+  name: 'x-local-session-id',
+  required: true,
+  description: 'Random local-development session ID; replace with OIDC in production.',
+})
 @Controller('documents')
 export class DocumentsController {
   constructor(private readonly documents: DocumentService) {}
@@ -57,7 +63,9 @@ export class DocumentsController {
     const parsed = createDocumentSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
     if (parsed.data.text.length > config.MAX_TEXT_CHARACTERS) {
-      throw new BadRequestException(`Document text exceeds the configured ${config.MAX_TEXT_CHARACTERS} character limit.`);
+      throw new BadRequestException(
+        `Document text exceeds the configured ${config.MAX_TEXT_CHARACTERS} character limit.`,
+      );
     }
     return this.documents.create(ownerFromHeader(ownerId), parsed.data);
   }

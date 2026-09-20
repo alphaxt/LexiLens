@@ -15,7 +15,9 @@ async function bootstrap(): Promise<void> {
 
   const swagger = new DocumentBuilder()
     .setTitle('LexiLens Local API')
-    .setDescription('Local evidence-first consumer document screening API; not a production identity boundary')
+    .setDescription(
+      'Local evidence-first consumer document screening API; not a production identity boundary',
+    )
     .setVersion('0.1.0')
     .build();
   SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swagger));

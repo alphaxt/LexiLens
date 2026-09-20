@@ -1,4 +1,10 @@
-import { ANALYSIS_VERSION, auditSchema, type Audit, type Clause, type Domain } from '@lexilens/contracts';
+import {
+  ANALYSIS_VERSION,
+  auditSchema,
+  type Audit,
+  type Clause,
+  type Domain,
+} from '@lexilens/contracts';
 
 const DISCLAIMER_FLAGS = [
   'Educational information only; this is not legal, medical, or financial advice.',
@@ -22,7 +28,8 @@ const CONSUMER_RULES: Rule[] = [
     riskLevel: 'TRAP',
     summary: 'This may renew your agreement unless you cancel before a stated deadline.',
     reasoning: 'Automatic renewal can create unexpected charges or extend the commitment.',
-    revision: 'Require written renewal consent after the current term ends and clear advance notice.',
+    revision:
+      'Require written renewal consent after the current term ends and clear advance notice.',
   },
   {
     category: 'Arbitration or class-action waiver',
@@ -30,15 +37,18 @@ const CONSUMER_RULES: Rule[] = [
     riskLevel: 'TRAP',
     summary: 'This may limit your ability to take a dispute to court or join a group claim.',
     reasoning: 'It can narrow dispute-resolution options and make small claims harder to pursue.',
-    revision: 'Make arbitration optional and preserve access to court and class proceedings where allowed.',
+    revision:
+      'Make arbitration optional and preserve access to court and class proceedings where allowed.',
   },
   {
     category: 'Cancellation and notice',
     pattern: /(?:cancel(?:lation)?|terminate|notice).{0,80}(?:days?|written|certified|mail)/i,
     riskLevel: 'CAUTION',
-    summary: 'Cancellation appears to require a specific process, notice period, or delivery method.',
+    summary:
+      'Cancellation appears to require a specific process, notice period, or delivery method.',
     reasoning: 'Missing a procedural step can lead to an unwanted renewal or additional fee.',
-    revision: 'Allow cancellation through a simple written or online notice with confirmation of receipt.',
+    revision:
+      'Allow cancellation through a simple written or online notice with confirmation of receipt.',
   },
   {
     category: 'Unilateral changes',
@@ -62,7 +72,8 @@ const CONSUMER_RULES: Rule[] = [
     riskLevel: 'CAUTION',
     summary: 'This may limit the other party’s responsibility or shift losses to you.',
     reasoning: 'A broad limitation may reduce available remedies if service causes harm or loss.',
-    revision: 'Make liability limits mutual and preserve remedies for intentional misconduct or gross negligence.',
+    revision:
+      'Make liability limits mutual and preserve remedies for intentional misconduct or gross negligence.',
   },
   {
     category: 'Privacy and data use',
@@ -70,16 +81,28 @@ const CONSUMER_RULES: Rule[] = [
     riskLevel: 'CAUTION',
     summary: 'This clause describes how your information may be collected, used, or shared.',
     reasoning: 'Broad data permissions may allow uses you do not expect.',
-    revision: 'Limit collection to necessary purposes and require opt-in consent for sharing or sale.',
+    revision:
+      'Limit collection to necessary purposes and require opt-in consent for sharing or sale.',
   },
 ];
 
 export function detectDomain(text: string): Domain | 'UNKNOWN' {
   if (/(?:lease|landlord|tenant|security deposit|rent)/i.test(text)) return 'HOUSING';
-  if (/(?:employer|employment|contractor|non-compete|intellectual property)/i.test(text)) return 'EMPLOYMENT';
-  if (/(?:patient|hospital|insurance|medical|consent|clinic|clinical|physician|doctor|treatment|diagnosis|therapy|chemotherapy|prescription|health care|healthcare)/i.test(text)) return 'HEALTHCARE';
+  if (/(?:employer|employment|contractor|non-compete|intellectual property)/i.test(text))
+    return 'EMPLOYMENT';
+  if (
+    /(?:patient|hospital|insurance|medical|consent|clinic|clinical|physician|doctor|treatment|diagnosis|therapy|chemotherapy|prescription|health care|healthcare)/i.test(
+      text,
+    )
+  )
+    return 'HEALTHCARE';
   if (/(?:apr|loan|credit|interest rate|lender)/i.test(text)) return 'FINANCE';
-  if (/(?:membership|subscription|service terms|terms of service|account|renewal|cancel(?:lation)?|late fee|arbitration|privacy policy|platform|gym contract)/i.test(text)) return 'CONSUMER';
+  if (
+    /(?:membership|subscription|service terms|terms of service|account|renewal|cancel(?:lation)?|late fee|arbitration|privacy policy|platform|gym contract)/i.test(
+      text,
+    )
+  )
+    return 'CONSUMER';
   return 'UNKNOWN';
 }
 
@@ -151,7 +174,14 @@ export function auditConsumerDocument(title: string, sourceText: string): Audit 
       const match = segment.text.match(rule.pattern);
       if (match) {
         clauses.push(
-          toClause(rule, segment.text, segment.start, clauses.length, match.index ?? 0, match[0].length),
+          toClause(
+            rule,
+            segment.text,
+            segment.start,
+            clauses.length,
+            match.index ?? 0,
+            match[0].length,
+          ),
         );
       }
     }
@@ -165,15 +195,19 @@ export function auditConsumerDocument(title: string, sourceText: string): Audit 
   );
   const noticeDays = notice?.[1] ?? notice?.[2];
   const timelineChecklist = noticeDays
-    ? [{
-        step: 1,
-        task: `Provide cancellation notice at least ${noticeDays} days before the relevant renewal or end date.`,
-        deadline: null,
-        deadlineType: 'RELATIVE_TO_EVENT' as const,
-        mandatory: true,
-        sourceClauseIds: clauses.filter((clause) => clause.category === 'Cancellation and notice').map((c) => c.clauseId),
-        needsUserContext: true,
-      }]
+    ? [
+        {
+          step: 1,
+          task: `Provide cancellation notice at least ${noticeDays} days before the relevant renewal or end date.`,
+          deadline: null,
+          deadlineType: 'RELATIVE_TO_EVENT' as const,
+          mandatory: true,
+          sourceClauseIds: clauses
+            .filter((clause) => clause.category === 'Cancellation and notice')
+            .map((c) => c.clauseId),
+          needsUserContext: true,
+        },
+      ]
     : [];
 
   const audit: Audit = {
@@ -192,25 +226,33 @@ export function auditConsumerDocument(title: string, sourceText: string): Audit 
     disclaimerFlags: DISCLAIMER_FLAGS,
     financialSummary: {
       baseAmount: formatUsd(baseAmount),
-      potentialHiddenFees: feeClauses.length ? 'Possible fees or penalties detected; review the cited clauses.' : 'No fee pattern detected.',
-      maximumLiabilityExposure: 'Not determinable—this screening does not prove a maximum exposure.',
-      calculationBreakdown: [{
-        label: 'Amount stated in document',
-        amount: baseAmount,
-        currency: 'USD',
-        formula: 'First dollar-denominated amount found in the provided text.',
-        assumptions: ['Only explicit dollar amounts can be calculated in this local analysis.'],
-        uncertainty: baseAmount === null ? 'No dollar amount was found.' : null,
-        evidenceClauseIds: feeClauses.map((clause) => clause.clauseId),
-      }],
+      potentialHiddenFees: feeClauses.length
+        ? 'Possible fees or penalties detected; review the cited clauses.'
+        : 'No fee pattern detected.',
+      maximumLiabilityExposure:
+        'Not determinable—this screening does not prove a maximum exposure.',
+      calculationBreakdown: [
+        {
+          label: 'Amount stated in document',
+          amount: baseAmount,
+          currency: 'USD',
+          formula: 'First dollar-denominated amount found in the provided text.',
+          assumptions: ['Only explicit dollar amounts can be calculated in this local analysis.'],
+          uncertainty: baseAmount === null ? 'No dollar amount was found.' : null,
+          evidenceClauseIds: feeClauses.map((clause) => clause.clauseId),
+        },
+      ],
     },
     clauses,
     timelineChecklist,
     negotiationResolution: {
       recipientRole: 'Account representative',
       subjectLine: `Request to clarify terms in ${title}`,
-      formalLetterDraft: 'Select one or more cited clauses to create an editable, evidence-linked draft.',
-      sourceClauseIds: clauses.filter((clause) => clause.riskLevel !== 'SAFE').map((clause) => clause.clauseId),
+      formalLetterDraft:
+        'Select one or more cited clauses to create an editable, evidence-linked draft.',
+      sourceClauseIds: clauses
+        .filter((clause) => clause.riskLevel !== 'SAFE')
+        .map((clause) => clause.clauseId),
     },
   };
   return auditSchema.parse(audit);

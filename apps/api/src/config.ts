@@ -6,7 +6,10 @@ const environmentSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   CORS_ORIGIN: z.string().url().default('http://localhost:3000'),
   MAX_TEXT_CHARACTERS: z.coerce.number().int().min(1000).max(1_000_000).default(250_000),
-  ENABLE_HEALTHCARE_ANALYSIS: z.string().default('false').transform((value) => value === 'true'),
+  ENABLE_HEALTHCARE_ANALYSIS: z
+    .string()
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type AppConfig = z.infer<typeof environmentSchema>;
