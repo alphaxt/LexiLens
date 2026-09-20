@@ -547,3 +547,31 @@ select {
     grid-template-columns: 1fr;
   }
 }
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.84rem;
+}
+.compact {
+  margin: 0;
+  padding: 8px 11px;
+}
+.auth-screen {
+  max-width: 620px;
+  min-height: 70vh;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+.auth-screen > div {
+  padding: 36px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.auth-screen button {
+  min-width: 160px;
+}

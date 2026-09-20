@@ -2,6 +2,8 @@
 
 import type { Clause, DocumentRecord } from '@lexilens/contracts';
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
+import { useAuth } from './auth-provider';
+import { publicAuthConfig } from '../lib/auth-config';
 import { riskLabel, sliceSource } from '../lib/presentation';
 import {
   mergeDocumentHistory,
@@ -9,7 +11,7 @@ import {
   validateTextFile,
 } from '../lib/workspace';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const API_URL = '';
 const SAMPLE = `SERVICE MEMBERSHIP TERMS\n\nYour membership will automatically renew for another twelve-month term unless you provide written notice 30 days before the renewal date.\n\nA $75 late fee may be assessed for each late payment. The Company may modify these terms at any time in its sole discretion.\n\nAll disputes must be resolved by binding arbitration. You waive the right to bring or join a class action.`;
 
 type DraftType = 'counter-proposal' | 'dispute';
@@ -25,7 +27,16 @@ function saveBlob(blob: Blob, filename: string): void {
 }
 
 export default function HomePage() {
-  const [sessionId, setSessionId] = useState('');
+  const {
+    authenticatedFetch,
+    error: authError,
+    identity,
+    isAuthenticated,
+    login,
+    logout,
+    ready,
+  } = useAuth();
+  const fetch = authenticatedFetch;
   const [title, setTitle] = useState('Membership agreement');
   const [text, setText] = useState(SAMPLE);
   const [documentRecord, setDocumentRecord] = useState<DocumentRecord | null>(null);
@@ -43,12 +54,9 @@ export default function HomePage() {
   const evidenceRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem('lexilens-local-session');
-    const id = stored ?? window.crypto.randomUUID();
-    window.localStorage.setItem('lexilens-local-session', id);
-    setSessionId(id);
+    if (!ready || !isAuthenticated) return;
     setHistoryBusy(true);
-    fetch(`${API_URL}/documents`, { headers: { 'x-local-session-id': id } })
+    fetch(`${API_URL}/documents`)
       .then(async (response) => {
         if (!response.ok) throw new Error('Document history could not be loaded.');
         return (await response.json()) as DocumentRecord[];
@@ -60,7 +68,7 @@ export default function HomePage() {
         );
       })
       .finally(() => setHistoryBusy(false));
-  }, []);
+  }, [fetch, isAuthenticated, ready]);
 
   const analysis = documentRecord?.analysis ?? null;
   const selected = analysis?.clauses.find((clause) => clause.clauseId === selectedClauseId) ?? null;
@@ -73,10 +81,7 @@ export default function HomePage() {
     analysis?.clauses.filter((clause) => clause.riskLevel === 'CAUTION').length ?? 0;
 
   function headers(withJson = false): HeadersInit {
-    return {
-      ...(withJson ? { 'content-type': 'application/json' } : {}),
-      'x-local-session-id': sessionId,
-    };
+    return withJson ? { 'content-type': 'application/json' } : {};
   }
 
   function openDocument(record: DocumentRecord) {
@@ -88,7 +93,7 @@ export default function HomePage() {
   }
 
   async function refreshDocuments() {
-    if (!sessionId) return;
+    if (!isAuthenticated) return;
     setHistoryBusy(true);
     setError(null);
     try {
@@ -127,7 +132,7 @@ export default function HomePage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!sessionId) return;
+    if (!isAuthenticated) return;
     setBusy(true);
     setError(null);
     setDraft(null);
@@ -137,10 +142,7 @@ export default function HomePage() {
         headers: headers(true),
         body: JSON.stringify({ title, text, mimeType: 'text/plain' }),
       });
-      if (!response.ok) {
-        const problem = (await response.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(problem?.message ?? 'The document could not be screened.');
-      }
+      if (!response.ok) throw new Error('The document could not be screened.');
       const result = (await response.json()) as DocumentRecord;
       setDocumentRecord(result);
       setDocuments((current) => mergeDocumentHistory(current, result));
@@ -233,13 +235,46 @@ export default function HomePage() {
     setSelectedClauseIds([]);
   }
 
+  if (!ready)
+    return (
+      <main className="auth-screen">
+        <h1>Loading secure workspace</h1>
+      </main>
+    );
+  if (publicAuthConfig.mode === 'oidc' && !isAuthenticated) {
+    return (
+      <main className="auth-screen">
+        <div>
+          <p className="eyebrow">Secure workspace</p>
+          <h1>Sign in to LexiLens</h1>
+          <p>Use your organization account to access your document workspace.</p>
+          <button onClick={() => void login()}>Sign in</button>
+          {authError && (
+            <p className="error" role="alert">
+              {authError}
+            </p>
+          )}
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main>
       <header className="site-header">
         <div className="brand" aria-label="LexiLens home">
           <span aria-hidden>◈</span> LexiLens
         </div>
-        <p>Evidence-first document X-Ray</p>
+        {publicAuthConfig.mode === 'oidc' ? (
+          <div className="account">
+            <span>{identity}</span>
+            <button className="secondary compact" onClick={() => void logout()}>
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <p>Local development demo</p>
+        )}
       </header>
 
       <section className="hero" aria-labelledby="page-title">
@@ -259,11 +294,16 @@ export default function HomePage() {
 
       <section className="ingest" aria-labelledby="ingest-title">
         <div>
-          <p className="eyebrow">Local development demo</p>
+          <p className="eyebrow">
+            {publicAuthConfig.mode === 'local'
+              ? 'Local development demo'
+              : 'Authenticated workspace'}
+          </p>
           <h2 id="ingest-title">Screen consumer agreement text</h2>
           <p>
-            Paste raw text only. The API is bound to this computer and uses a random browser
-            session, but this is not production authentication or encrypted persistent storage.
+            {publicAuthConfig.mode === 'local'
+              ? 'Paste raw text only. The API is bound to this computer and uses a random browser session, but this is not production authentication or encrypted persistent storage.'
+              : 'Paste raw text only. Your account session is held in memory and will require sign-in again when it expires.'}
           </p>
         </div>
         <form onSubmit={submit}>
@@ -294,7 +334,7 @@ export default function HomePage() {
             required
             rows={9}
           />
-          <button type="submit" disabled={busy || !sessionId}>
+          <button type="submit" disabled={busy || !isAuthenticated}>
             {busy ? 'Screening…' : 'Run document X-Ray'}
           </button>
         </form>
@@ -308,14 +348,18 @@ export default function HomePage() {
       <section className="workspace-history" aria-labelledby="history-title">
         <div className="history-heading">
           <div>
-            <p className="eyebrow">Local session workspace</p>
+            <p className="eyebrow">
+              {publicAuthConfig.mode === 'local'
+                ? 'Local session workspace'
+                : 'Your document workspace'}
+            </p>
             <h2 id="history-title">Document history</h2>
           </div>
           <button
             type="button"
             className="secondary compact"
             onClick={() => void refreshDocuments()}
-            disabled={!sessionId || historyBusy}
+            disabled={!isAuthenticated || historyBusy}
           >
             {historyBusy ? 'Refreshing…' : 'Refresh'}
           </button>
