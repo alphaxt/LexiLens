@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   CalendarRequest,
   CreateDocumentInput,
@@ -8,21 +8,21 @@ import type {
 } from '@lexilens/contracts';
 import { processingStatusSchema } from '@lexilens/contracts';
 import { loadConfig } from './config';
+import { PERSISTENCE_PORT, type PersistencePort } from './persistence/persistence.port';
 import { auditConsumerDocument, detectDomain } from './services/audit-engine';
 import { makeIcsCalendar } from './services/calendar';
 
 @Injectable()
 export class DocumentService {
-  private readonly records = new Map<string, DocumentRecord>();
   private readonly config = loadConfig();
 
-  list(ownerId: string): DocumentRecord[] {
-    return [...this.records.values()]
-      .filter((record) => record.ownerId === ownerId && record.status !== 'DELETED')
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  constructor(@Inject(PERSISTENCE_PORT) private readonly persistence: PersistencePort) {}
+
+  async list(ownerId: string): Promise<DocumentRecord[]> {
+    return this.persistence.listDocuments(ownerId);
   }
 
-  create(ownerId: string, input: CreateDocumentInput): DocumentRecord {
+  async create(ownerId: string, input: CreateDocumentInput): Promise<DocumentRecord> {
     const domain = detectDomain(input.text);
     if (domain === 'HEALTHCARE' && !this.config.ENABLE_HEALTHCARE_ANALYSIS) {
       throw new BadRequestException(
@@ -37,12 +37,7 @@ export class DocumentService {
 
     const now = new Date().toISOString();
     const contentHash = createHash('sha256').update(input.text).digest('hex');
-    const duplicate = this.list(ownerId).find((record) => record.contentHash === contentHash);
-    if (duplicate) return duplicate;
-
-    // This local adapter accepts extracted raw text only. Production replaces this boundary with
-    // OIDC identity, signed private uploads, quarantine scanning, extraction/OCR, and worker queues.
-    let record: DocumentRecord = {
+    const quarantined: DocumentRecord = {
       id: randomUUID(),
       ownerId,
       title: input.title,
@@ -53,40 +48,51 @@ export class DocumentService {
       updatedAt: now,
       analysis: null,
     };
-    this.records.set(record.id, record);
-    record = {
-      ...record,
-      status: processingStatusSchema.enum.PROCESSING,
-      updatedAt: new Date().toISOString(),
-    };
-    record = {
-      ...record,
-      status: processingStatusSchema.enum.COMPLETED,
-      updatedAt: new Date().toISOString(),
-      analysis: auditConsumerDocument(record.title, record.sourceText),
-    };
-    this.records.set(record.id, record);
-    return record;
+    const reservation = await this.persistence.reserveDocument(quarantined);
+    const working = reservation.document;
+    if (!reservation.created && !['QUARANTINED', 'PROCESSING', 'FAILED'].includes(working.status)) {
+      return working;
+    }
+
+    await this.persistence.transitionDocument(
+      ownerId,
+      working.id,
+      processingStatusSchema.enum.PROCESSING,
+      null,
+    );
+    try {
+      const analysis = auditConsumerDocument(working.title, working.sourceText);
+      const completed = await this.persistence.transitionDocument(
+        ownerId,
+        working.id,
+        processingStatusSchema.enum.COMPLETED,
+        analysis,
+      );
+      if (!completed) throw new NotFoundException('Document not found.');
+      return completed;
+    } catch (error) {
+      await this.persistence.transitionDocument(
+        ownerId,
+        working.id,
+        processingStatusSchema.enum.FAILED,
+        null,
+      );
+      throw error;
+    }
   }
 
-  get(ownerId: string, id: string): DocumentRecord {
+  async get(ownerId: string, id: string): Promise<DocumentRecord> {
     return this.requireOwned(ownerId, id);
   }
 
-  delete(ownerId: string, id: string): { id: string; status: 'DELETED' } {
-    const record = this.requireOwned(ownerId, id);
-    this.records.set(id, {
-      ...record,
-      sourceText: '',
-      analysis: null,
-      status: processingStatusSchema.enum.DELETED,
-      updatedAt: new Date().toISOString(),
-    });
+  async delete(ownerId: string, id: string): Promise<{ id: string; status: 'DELETED' }> {
+    const deleted = await this.persistence.softDeleteDocument(ownerId, id);
+    if (!deleted) throw new NotFoundException('Document not found.');
     return { id, status: 'DELETED' };
   }
 
-  createDraft(ownerId: string, id: string, request: DraftRequest) {
-    const record = this.requireOwned(ownerId, id);
+  async createDraft(ownerId: string, id: string, request: DraftRequest) {
+    const record = await this.requireOwned(ownerId, id);
     if (!record.analysis) throw new NotFoundException('This document has no available analysis.');
     const selected = record.analysis.clauses.filter((clause) =>
       request.clauseIds.includes(clause.clauseId),
@@ -124,8 +130,8 @@ export class DocumentService {
     };
   }
 
-  createCalendar(ownerId: string, id: string, request: CalendarRequest): string {
-    const record = this.requireOwned(ownerId, id);
+  async createCalendar(ownerId: string, id: string, request: CalendarRequest): Promise<string> {
+    const record = await this.requireOwned(ownerId, id);
     if (!record.analysis) throw new NotFoundException('This document has no available analysis.');
     const confirmed = record.analysis.timelineChecklist.map((item) => {
       const userDate = request.confirmedDeadlines.find((entry) => entry.step === item.step);
@@ -134,19 +140,9 @@ export class DocumentService {
     return makeIcsCalendar(record.title, confirmed);
   }
 
-  purgeOwner(ownerId: string): number {
-    const ownedIds = [...this.records.values()]
-      .filter((record) => record.ownerId === ownerId)
-      .map((record) => record.id);
-    for (const id of ownedIds) this.records.delete(id);
-    return ownedIds.length;
-  }
-
-  private requireOwned(ownerId: string, id: string): DocumentRecord {
-    const record = this.records.get(id);
-    if (!record || record.ownerId !== ownerId || record.status === 'DELETED') {
-      throw new NotFoundException('Document not found.');
-    }
+  private async requireOwned(ownerId: string, id: string): Promise<DocumentRecord> {
+    const record = await this.persistence.findDocument(ownerId, id);
+    if (!record) throw new NotFoundException('Document not found.');
     return record;
   }
 }

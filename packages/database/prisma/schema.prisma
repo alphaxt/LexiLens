@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum DocumentStatus {
+  UPLOADING
+  QUARANTINED
+  REJECTED
+  READY_FOR_EXTRACTION
+  PROCESSING
+  COMPLETED
+  FAILED
+  DELETED
+}
+
+enum RetentionPolicy {
+  SESSION
+  SEVEN_DAYS
+  THIRTY_DAYS
+  NINETY_DAYS
+}
+
+enum SecurityEventType {
+  ACCOUNT_INITIALIZED
+  PRIVACY_UPDATED
+  DATA_EXPORTED
+  ACCOUNT_DELETED
+}
+
+enum ActorMode {
+  local
+  oidc
+}
+
+model Owner {
+  id        String     @id
+  account   Account?
+  documents Document[]
+  createdAt DateTime   @default(now())
+}
+
+model Account {
+  ownerId         String          @id
+  owner           Owner           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  subject         String
+  retentionPolicy RetentionPolicy @default(SESSION)
+  consentAccepted Boolean         @default(false)
+  consentVersion  String?
+  consentedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  securityEvents  SecurityEvent[]
+}
+
+model Document {
+  id                String         @id @default(uuid()) @db.Uuid
+  ownerId           String
+  owner             Owner          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title             String         @db.VarChar(180)
+  sourceText        String
+  contentHash       String         @db.Char(64)
+  activeContentHash String?        @db.Char(64)
+  status            DocumentStatus
+  analysis          Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([ownerId, activeContentHash])
+  @@index([ownerId, status, createdAt])
+}
+
+model SecurityEvent {
+  sequence   BigInt            @id @default(autoincrement())
+  id         String            @unique @default(uuid()) @db.Uuid
+  ownerId    String
+  account    Account           @relation(fields: [ownerId], references: [ownerId], onDelete: Cascade)
+  type       SecurityEventType
+  occurredAt DateTime          @default(now())
+  actorMode  ActorMode
+
+  @@index([ownerId, sequence])
+}

@@ -5,9 +5,11 @@ import {
   Delete,
   Get,
   HttpCode,
+  Inject,
   Param,
   Post,
   Res,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -20,15 +22,38 @@ import type { FastifyReply } from 'fastify';
 import { type AuthPrincipal, CurrentPrincipal, IdentityGuard } from './auth/identity';
 import { loadConfig } from './config';
 import { DocumentService } from './documents.service';
+import { PERSISTENCE_PORT, type PersistencePort } from './persistence/persistence.port';
 
 const config = loadConfig();
 
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
+  constructor(@Inject(PERSISTENCE_PORT) private readonly persistence: PersistencePort) {}
+
   @Get()
-  status(): { status: 'ok'; service: string; authMode: 'local' | 'oidc' } {
-    return { status: 'ok', service: 'lexilens-api', authMode: config.AUTH_MODE };
+  async status() {
+    const persistence = await this.persistence.health();
+    if (!persistence.healthy) {
+      throw new ServiceUnavailableException({
+        status: 'unavailable',
+        service: 'lexilens-api',
+        authMode: config.AUTH_MODE,
+        persistence: {
+          mode: persistence.mode,
+          schemaVersion: persistence.schemaVersion,
+        },
+      });
+    }
+    return {
+      status: 'ok' as const,
+      service: 'lexilens-api',
+      authMode: config.AUTH_MODE,
+      persistence: {
+        mode: persistence.mode,
+        schemaVersion: persistence.schemaVersion,
+      },
+    };
   }
 }
 
@@ -46,14 +71,14 @@ export class DocumentsController {
 
   @Get()
   @ApiOperation({ summary: 'List documents owned by the authenticated principal' })
-  list(@CurrentPrincipal() principal: AuthPrincipal) {
+  async list(@CurrentPrincipal() principal: AuthPrincipal) {
     return this.documents.list(principal.ownerId);
   }
 
   @Post()
   @HttpCode(201)
   @ApiOperation({ summary: 'Submit raw text for validated consumer-document screening' })
-  create(@CurrentPrincipal() principal: AuthPrincipal, @Body() body: unknown) {
+  async create(@CurrentPrincipal() principal: AuthPrincipal, @Body() body: unknown) {
     const parsed = createDocumentSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
     if (parsed.data.text.length > config.MAX_TEXT_CHARACTERS) {
@@ -65,17 +90,17 @@ export class DocumentsController {
   }
 
   @Get(':id')
-  get(@CurrentPrincipal() principal: AuthPrincipal, @Param('id') id: string) {
+  async get(@CurrentPrincipal() principal: AuthPrincipal, @Param('id') id: string) {
     return this.documents.get(principal.ownerId, id);
   }
 
   @Delete(':id')
-  delete(@CurrentPrincipal() principal: AuthPrincipal, @Param('id') id: string) {
+  async delete(@CurrentPrincipal() principal: AuthPrincipal, @Param('id') id: string) {
     return this.documents.delete(principal.ownerId, id);
   }
 
   @Post(':id/drafts')
-  draft(
+  async draft(
     @CurrentPrincipal() principal: AuthPrincipal,
     @Param('id') id: string,
     @Body() body: unknown,
@@ -86,7 +111,7 @@ export class DocumentsController {
   }
 
   @Post(':id/calendar')
-  calendar(
+  async calendar(
     @CurrentPrincipal() principal: AuthPrincipal,
     @Param('id') id: string,
     @Body() body: unknown,

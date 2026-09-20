@@ -7,13 +7,48 @@ const productionOidc = {
   OIDC_ISSUER_URL: 'https://tenant.example.com/',
   OIDC_JWKS_URI: 'https://keys.example.com/oauth/jwks',
   OIDC_AUDIENCE: 'https://api.lexilens.example',
+  PERSISTENCE_MODE: 'postgresql',
+  DATABASE_URL: 'postgresql://lexilens:secret@database.internal:5432/lexilens?schema=public',
 } as const;
 
-describe('authentication configuration', () => {
-  it('prohibits local session mode in production', () => {
-    expect(() => loadConfig({ NODE_ENV: 'production', AUTH_MODE: 'local' })).toThrow(
-      'Production requires AUTH_MODE=oidc',
+describe('runtime configuration', () => {
+  it('defaults local and test environments to in-memory persistence', () => {
+    expect(loadConfig({ NODE_ENV: 'test' })).toMatchObject({
+      AUTH_MODE: 'local',
+      PERSISTENCE_MODE: 'memory',
+    });
+  });
+
+  it('prohibits local session mode and memory persistence in production', () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        AUTH_MODE: 'local',
+        PERSISTENCE_MODE: 'memory',
+      }),
+    ).toThrow('Production requires AUTH_MODE=oidc');
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        AUTH_MODE: 'oidc',
+        OIDC_ISSUER_URL: productionOidc.OIDC_ISSUER_URL,
+        OIDC_JWKS_URI: productionOidc.OIDC_JWKS_URI,
+        OIDC_AUDIENCE: productionOidc.OIDC_AUDIENCE,
+      }),
+    ).toThrow('Production requires PERSISTENCE_MODE=postgresql');
+  });
+
+  it('requires a PostgreSQL URL whenever PostgreSQL persistence is selected', () => {
+    expect(() => loadConfig({ NODE_ENV: 'development', PERSISTENCE_MODE: 'postgresql' })).toThrow(
+      'DATABASE_URL is required',
     );
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'development',
+        PERSISTENCE_MODE: 'postgresql',
+        DATABASE_URL: 'https://database.example.com/lexilens',
+      }),
+    ).toThrow('must use the postgresql:// or postgres:// protocol');
   });
 
   it('requires local mode to bind only to loopback', () => {
@@ -23,12 +58,12 @@ describe('authentication configuration', () => {
   });
 
   it('requires issuer, explicit JWKS URI, and audience in OIDC mode', () => {
-    expect(() => loadConfig({ NODE_ENV: 'production', AUTH_MODE: 'oidc' })).toThrow(
+    expect(() => loadConfig({ NODE_ENV: 'development', AUTH_MODE: 'oidc' })).toThrow(
       'OIDC_ISSUER_URL is required',
     );
     expect(() =>
       loadConfig({
-        NODE_ENV: 'production',
+        NODE_ENV: 'development',
         AUTH_MODE: 'oidc',
         OIDC_ISSUER_URL: 'https://tenant.example.com/',
         OIDC_AUDIENCE: 'api',
@@ -45,7 +80,10 @@ describe('authentication configuration', () => {
     ).toThrow('JWKS URI must use HTTPS');
   });
 
-  it('accepts complete production OIDC configuration', () => {
-    expect(loadConfig(productionOidc).AUTH_MODE).toBe('oidc');
+  it('accepts complete production OIDC and PostgreSQL configuration', () => {
+    expect(loadConfig(productionOidc)).toMatchObject({
+      AUTH_MODE: 'oidc',
+      PERSISTENCE_MODE: 'postgresql',
+    });
   });
 });

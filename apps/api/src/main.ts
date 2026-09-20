@@ -12,6 +12,7 @@ async function bootstrap(): Promise<void> {
     new FastifyAdapter({ logger: true, bodyLimit: config.MAX_TEXT_CHARACTERS * 2 }),
   );
   app.enableCors({ origin: config.CORS_ORIGIN });
+  app.enableShutdownHooks();
 
   const swagger = new DocumentBuilder()
     .setTitle('LexiLens Local API')

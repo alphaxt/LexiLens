@@ -11,6 +11,8 @@ const environmentSchema = z
       .string()
       .default('false')
       .transform((value) => value === 'true'),
+    PERSISTENCE_MODE: z.enum(['memory', 'postgresql']).default('memory'),
+    DATABASE_URL: z.string().url().optional(),
     AUTH_MODE: z.enum(['local', 'oidc']).default('local'),
     OIDC_ISSUER_URL: z.string().url().optional(),
     OIDC_JWKS_URI: z.string().url().optional(),
@@ -23,6 +25,28 @@ const environmentSchema = z
         path: ['AUTH_MODE'],
         message: 'Production requires AUTH_MODE=oidc.',
       });
+    }
+    if (config.NODE_ENV === 'production' && config.PERSISTENCE_MODE !== 'postgresql') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PERSISTENCE_MODE'],
+        message: 'Production requires PERSISTENCE_MODE=postgresql.',
+      });
+    }
+    if (config.PERSISTENCE_MODE === 'postgresql') {
+      if (!config.DATABASE_URL) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['DATABASE_URL'],
+          message: 'DATABASE_URL is required in PostgreSQL persistence mode.',
+        });
+      } else if (!/^postgres(?:ql)?:\/\//.test(config.DATABASE_URL)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['DATABASE_URL'],
+          message: 'DATABASE_URL must use the postgresql:// or postgres:// protocol.',
+        });
+      }
     }
     if (config.AUTH_MODE === 'local' && !['127.0.0.1', 'localhost', '::1'].includes(config.HOST)) {
       context.addIssue({

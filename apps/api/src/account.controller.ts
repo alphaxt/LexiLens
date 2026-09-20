@@ -25,29 +25,29 @@ export class AccountController {
   constructor(private readonly accounts: AccountService) {}
 
   @Get()
-  get(@CurrentPrincipal() principal: AuthPrincipal) {
+  async get(@CurrentPrincipal() principal: AuthPrincipal) {
     return this.accounts.get(principal);
   }
 
   @Patch('privacy')
-  updatePrivacy(@CurrentPrincipal() principal: AuthPrincipal, @Body() body: unknown) {
+  async updatePrivacy(@CurrentPrincipal() principal: AuthPrincipal, @Body() body: unknown) {
     const parsed = updatePrivacyPreferencesSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
     return this.accounts.update(principal, parsed.data);
   }
 
   @Get('export')
-  export(@CurrentPrincipal() principal: AuthPrincipal) {
+  async export(@CurrentPrincipal() principal: AuthPrincipal) {
     return this.accounts.export(principal);
   }
 
   @Get('audit-log')
-  auditLog(@CurrentPrincipal() principal: AuthPrincipal) {
+  async auditLog(@CurrentPrincipal() principal: AuthPrincipal) {
     return this.accounts.auditLog(principal);
   }
 
   @Delete()
-  delete(@CurrentPrincipal() principal: AuthPrincipal) {
+  async delete(@CurrentPrincipal() principal: AuthPrincipal) {
     return this.accounts.delete(principal);
   }
 }
