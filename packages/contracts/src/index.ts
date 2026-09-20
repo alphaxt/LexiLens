@@ -90,16 +90,46 @@ export const auditSchema = z.object({
   }),
 });
 
+export const uploadMimeSchema = z.enum([
+  'text/plain',
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+]);
+export const uploadRejectionCodeSchema = z.enum([
+  'EMPTY_CONTENT',
+  'OVERSIZED_CONTENT',
+  'UNSUPPORTED_DECLARED_MIME',
+  'INVALID_MAGIC_BYTES',
+  'MIME_MISMATCH',
+  'SCANNER_ERROR',
+]);
+
 export const documentSchema = z.object({
   id: z.string().uuid(),
   ownerId: z.string().min(1),
   title: z.string().min(1).max(180),
-  sourceText: z.string().min(1),
+  sourceText: z.string(),
   contentHash: z.string().length(64),
   status: processingStatusSchema,
+  originalFilename: z.string().max(180).nullable().default(null),
+  declaredMime: uploadMimeSchema.nullable().default(null),
+  detectedMime: uploadMimeSchema.nullable().default(null),
+  byteSize: z.number().int().nonnegative().nullable().default(null),
+  scanResult: z.enum(['PENDING', 'CLEAN', 'REJECTED', 'ERROR']).nullable().default(null),
+  rejectionCode: uploadRejectionCodeSchema.nullable().default(null),
+  storageKey: z.string().nullable().default(null),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   analysis: auditSchema.nullable(),
+});
+
+/** Client-safe metadata: private storage identifiers and content are intentionally omitted. */
+export const documentMetadataSchema = documentSchema.omit({
+  ownerId: true,
+  sourceText: true,
+  contentHash: true,
+  storageKey: true,
 });
 
 export const createDocumentSchema = z.object({
@@ -130,6 +160,7 @@ export const calendarRequestSchema = z.object({
 export type Audit = z.infer<typeof auditSchema>;
 export type Clause = z.infer<typeof clauseSchema>;
 export type DocumentRecord = z.infer<typeof documentSchema>;
+export type DocumentMetadata = z.infer<typeof documentMetadataSchema>;
 export type Domain = z.infer<typeof domainSchema>;
 export type ProcessingStatus = z.infer<typeof processingStatusSchema>;
 export type CreateDocumentInput = z.infer<typeof createDocumentSchema>;

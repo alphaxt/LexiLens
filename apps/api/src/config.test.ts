@@ -9,6 +9,12 @@ const productionOidc = {
   OIDC_AUDIENCE: 'https://api.lexilens.example',
   PERSISTENCE_MODE: 'postgresql',
   DATABASE_URL: 'postgresql://lexilens:secret@database.internal:5432/lexilens?schema=public',
+  STORAGE_MODE: 's3',
+  S3_ENDPOINT: 'https://storage.example.com',
+  S3_BUCKET: 'lexilens-private',
+  S3_ACCESS_KEY_ID: 'key',
+  S3_SECRET_ACCESS_KEY: 'secret',
+  SCANNER_MODE: 'magic',
 } as const;
 
 describe('runtime configuration', () => {

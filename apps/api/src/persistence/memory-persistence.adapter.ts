@@ -74,6 +74,24 @@ export class MemoryPersistenceAdapter implements PersistencePort {
     return clone(updated);
   }
 
+  async updateUploadMetadata(
+    ownerId: string,
+    id: string,
+    metadata: Pick<DocumentRecord, 'detectedMime' | 'scanResult' | 'rejectionCode'>,
+  ): Promise<DocumentRecord | undefined> {
+    const current = this.documents.get(id);
+    if (!current || current.ownerId !== ownerId || current.status === 'DELETED') return undefined;
+    const updated = { ...current, ...metadata, updatedAt: new Date().toISOString() };
+    this.documents.set(id, updated);
+    return clone(updated);
+  }
+
+  async listStorageKeys(ownerId: string): Promise<string[]> {
+    return [...this.documents.values()]
+      .filter((document) => document.ownerId === ownerId && document.storageKey)
+      .map((document) => document.storageKey!);
+  }
+
   async softDeleteDocument(ownerId: string, id: string): Promise<boolean> {
     const current = this.documents.get(id);
     if (!current || current.ownerId !== ownerId || current.status === 'DELETED') return false;

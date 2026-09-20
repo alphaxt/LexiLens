@@ -47,6 +47,13 @@ export class DocumentService {
       createdAt: now,
       updatedAt: now,
       analysis: null,
+      originalFilename: null,
+      declaredMime: null,
+      detectedMime: null,
+      byteSize: null,
+      scanResult: null,
+      rejectionCode: null,
+      storageKey: null,
     };
     const reservation = await this.persistence.reserveDocument(quarantined);
     const working = reservation.document;

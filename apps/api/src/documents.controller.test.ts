@@ -8,7 +8,7 @@ class UnhealthyPersistenceAdapter extends MemoryPersistenceAdapter {
     return {
       healthy: false,
       mode: 'postgresql' as const,
-      schemaVersion: '20260920000000_initial',
+      schemaVersion: '20260921000000_add_document_upload_quarantine',
     };
   }
 }
@@ -21,7 +21,7 @@ describe('HealthController readiness', () => {
       service: 'lexilens-api',
       persistence: {
         mode: 'memory',
-        schemaVersion: '20260920000000_initial',
+        schemaVersion: '20260921000000_add_document_upload_quarantine',
       },
     });
   });

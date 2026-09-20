@@ -23,6 +23,12 @@ Development defaults to `AUTH_MODE=local`, where a random UUID partitions in-mem
 
 The included browser UI is intentionally local-mode only. A production browser OIDC authorization-code/PKCE integration is a separate deployment feature; do not expose this UI or API publicly until that client is configured.
 
+## Private upload quarantine
+
+`POST /documents/uploads` accepts exactly one `file` multipart part plus a bounded `title` field. The supported declared and independently detected formats are `text/plain`, `application/pdf`, `image/png`, and `image/jpeg`. The service generates opaque document and storage IDs; filenames are sanitized for display only and never control paths or object keys. Uploads enter `UPLOADING`, are stored privately, scanned for magic bytes, and become `READY_FOR_EXTRACTION` only after a clean result. Rejected or scanner-error uploads never enter audit/extraction and have no content/download endpoint.
+
+Production startup fails closed unless PostgreSQL/OIDC and `STORAGE_MODE=s3`, private HTTPS S3 endpoint credentials, and explicit `SCANNER_MODE` are configured. The bundled `magic` scanner is a format gate, **not malware protection**; deployment still requires an approved malware scanner, asynchronous extraction/OCR worker, retryable deletion reconciliation, encryption/KMS, and private bucket policy validation against the actual provider. Local/test storage is memory-only and loopback local identity remains development-only.
+
 ## Production boundaries
 
 The demo deliberately uses text-only ingestion and in-memory storage. Production deployment must replace the storage and scan adapters with private object storage, malware scanning, native PDF/OCR adapters, background queues, authenticated OIDC identity, and the approved compliance controls described in the architecture plan.

@@ -15,6 +15,13 @@ function quarantined(ownerId: string, contentHash = 'a'.repeat(64)): DocumentRec
     createdAt: now,
     updatedAt: now,
     analysis: null,
+    originalFilename: null,
+    declaredMime: null,
+    detectedMime: null,
+    byteSize: null,
+    scanResult: null,
+    rejectionCode: null,
+    storageKey: null,
   };
 }
 
@@ -49,7 +56,7 @@ describe('MemoryPersistenceAdapter repository contract', () => {
     await expect(repository.health()).resolves.toEqual({
       healthy: true,
       mode: 'memory',
-      schemaVersion: '20260920000000_initial',
+      schemaVersion: '20260921000000_add_document_upload_quarantine',
     });
   });
 });

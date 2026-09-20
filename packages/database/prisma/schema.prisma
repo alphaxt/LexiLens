@@ -65,6 +65,13 @@ model Document {
   contentHash       String         @db.Char(64)
   activeContentHash String?        @db.Char(64)
   status            DocumentStatus
+  storageKey        String?        @db.VarChar(160)
+  originalFilename  String?        @db.VarChar(180)
+  declaredMime      String?        @db.VarChar(100)
+  detectedMime      String?        @db.VarChar(100)
+  byteSize          Int?
+  scanResult        String?        @db.VarChar(20)
+  rejectionCode     String?        @db.VarChar(80)
   analysis          Json?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt

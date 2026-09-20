@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import multipart from '@fastify/multipart';
 import { AppModule } from './app.module';
 import { loadConfig } from './config';
 
@@ -11,6 +12,9 @@ async function bootstrap(): Promise<void> {
     AppModule,
     new FastifyAdapter({ logger: true, bodyLimit: config.MAX_TEXT_CHARACTERS * 2 }),
   );
+  await app.register(multipart, {
+    limits: { files: 1, fields: 2, fileSize: config.MAX_UPLOAD_BYTES },
+  });
   app.enableCors({ origin: config.CORS_ORIGIN });
   app.enableShutdownHooks();
 

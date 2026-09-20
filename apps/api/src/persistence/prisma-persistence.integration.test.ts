@@ -21,6 +21,13 @@ function quarantined(owner: string, sourceText: string): DocumentRecord {
     createdAt: now,
     updatedAt: now,
     analysis: null,
+    originalFilename: null,
+    declaredMime: null,
+    detectedMime: null,
+    byteSize: null,
+    scanResult: null,
+    rejectionCode: null,
+    storageKey: null,
   };
 }
 

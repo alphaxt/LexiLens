@@ -7,6 +7,14 @@ const environmentSchema = z
     PORT: z.coerce.number().int().min(1).max(65535).default(4000),
     CORS_ORIGIN: z.string().url().default('http://localhost:3000'),
     MAX_TEXT_CHARACTERS: z.coerce.number().int().min(1000).max(1_000_000).default(250_000),
+    MAX_UPLOAD_BYTES: z.coerce.number().int().min(1_024).max(25_000_000).default(10_000_000),
+    STORAGE_MODE: z.enum(['memory', 's3']).default('memory'),
+    S3_ENDPOINT: z.string().url().optional(),
+    S3_BUCKET: z.string().min(3).optional(),
+    S3_REGION: z.string().min(1).default('us-east-1'),
+    S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+    S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    SCANNER_MODE: z.enum(['magic']).optional(),
     ENABLE_HEALTHCARE_ANALYSIS: z
       .string()
       .default('false')
@@ -25,6 +33,46 @@ const environmentSchema = z
         path: ['AUTH_MODE'],
         message: 'Production requires AUTH_MODE=oidc.',
       });
+    }
+    if (config.NODE_ENV === 'production' && config.STORAGE_MODE !== 's3') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['STORAGE_MODE'],
+        message: 'Production requires private S3-compatible storage.',
+      });
+    }
+    if (config.NODE_ENV === 'production' && config.SCANNER_MODE !== 'magic') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SCANNER_MODE'],
+        message: 'Production requires an explicit scanner mode.',
+      });
+    }
+    if (config.STORAGE_MODE === 's3') {
+      for (const field of [
+        'S3_ENDPOINT',
+        'S3_BUCKET',
+        'S3_ACCESS_KEY_ID',
+        'S3_SECRET_ACCESS_KEY',
+      ] as const) {
+        if (!config[field])
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for S3 storage.`,
+          });
+      }
+      if (
+        config.NODE_ENV === 'production' &&
+        config.S3_ENDPOINT &&
+        !config.S3_ENDPOINT.startsWith('https://')
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['S3_ENDPOINT'],
+          message: 'Production S3 endpoint must use HTTPS.',
+        });
+      }
     }
     if (config.NODE_ENV === 'production' && config.PERSISTENCE_MODE !== 'postgresql') {
       context.addIssue({

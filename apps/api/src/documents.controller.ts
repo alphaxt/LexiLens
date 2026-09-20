@@ -8,6 +8,7 @@ import {
   Inject,
   Param,
   Post,
+  Req,
   Res,
   ServiceUnavailableException,
   UseGuards,
@@ -18,10 +19,12 @@ import {
   createDocumentSchema,
   draftRequestSchema,
 } from '@lexilens/contracts';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { RequireScopeGuard } from './auth/require-scope.guard';
 import { type AuthPrincipal, CurrentPrincipal, IdentityGuard } from './auth/identity';
 import { loadConfig } from './config';
 import { DocumentService } from './documents.service';
+import { UploadService } from './uploads.service';
 import { PERSISTENCE_PORT, type PersistencePort } from './persistence/persistence.port';
 
 const config = loadConfig();
@@ -67,12 +70,36 @@ export class HealthController {
 @UseGuards(IdentityGuard)
 @Controller('documents')
 export class DocumentsController {
-  constructor(private readonly documents: DocumentService) {}
+  constructor(
+    private readonly documents: DocumentService,
+    private readonly uploads: UploadService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List documents owned by the authenticated principal' })
   async list(@CurrentPrincipal() principal: AuthPrincipal) {
     return this.documents.list(principal.ownerId);
+  }
+
+  @Post('uploads')
+  @HttpCode(201)
+  @UseGuards(RequireScopeGuard)
+  @ApiOperation({ summary: 'Privately upload one file for quarantine scanning' })
+  async upload(@CurrentPrincipal() principal: AuthPrincipal, @Req() request: FastifyRequest) {
+    const multipart = await request.file();
+    if (!multipart) throw new BadRequestException('Exactly one file is required.');
+    const fields = multipart.fields as Record<string, { value?: unknown } | undefined>;
+    const title = typeof fields.title?.value === 'string' ? fields.title.value.trim() : '';
+    if (!title || title.length > 180)
+      throw new BadRequestException('A title between 1 and 180 characters is required.');
+    const second = await request.file();
+    if (second) throw new BadRequestException('Exactly one file is required.');
+    return this.uploads.upload(principal.ownerId, {
+      title,
+      filename: multipart.filename,
+      mimeType: multipart.mimetype,
+      stream: multipart.file,
+    });
   }
 
   @Post()

@@ -50,6 +50,13 @@ function toDocument(document: DatabaseDocument): DocumentRecord {
     createdAt: document.createdAt.toISOString(),
     updatedAt: document.updatedAt.toISOString(),
     analysis: document.analysis === null ? null : auditSchema.parse(document.analysis),
+    originalFilename: document.originalFilename,
+    declaredMime: document.declaredMime as DocumentRecord['declaredMime'],
+    detectedMime: document.detectedMime as DocumentRecord['detectedMime'],
+    byteSize: document.byteSize,
+    scanResult: document.scanResult as DocumentRecord['scanResult'],
+    rejectionCode: document.rejectionCode as DocumentRecord['rejectionCode'],
+    storageKey: document.storageKey,
   };
 }
 
@@ -140,6 +147,13 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
           activeContentHash: record.contentHash,
           status: record.status,
           analysis: Prisma.DbNull,
+          storageKey: record.storageKey,
+          originalFilename: record.originalFilename,
+          declaredMime: record.declaredMime,
+          detectedMime: record.detectedMime,
+          byteSize: record.byteSize,
+          scanResult: record.scanResult,
+          rejectionCode: record.rejectionCode,
           createdAt: new Date(record.createdAt),
           updatedAt: new Date(record.updatedAt),
         },
@@ -173,6 +187,26 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
     });
     if (updated.count === 0) return undefined;
     return this.findDocument(ownerId, id);
+  }
+
+  async updateUploadMetadata(
+    ownerId: string,
+    id: string,
+    metadata: Pick<DocumentRecord, 'detectedMime' | 'scanResult' | 'rejectionCode'>,
+  ): Promise<DocumentRecord | undefined> {
+    const updated = await this.client.document.updateMany({
+      where: { id, ownerId, status: { not: 'DELETED' } },
+      data: metadata,
+    });
+    return updated.count ? this.findDocument(ownerId, id) : undefined;
+  }
+
+  async listStorageKeys(ownerId: string): Promise<string[]> {
+    const documents = await this.client.document.findMany({
+      where: { ownerId, storageKey: { not: null } },
+      select: { storageKey: true },
+    });
+    return documents.flatMap((document) => (document.storageKey ? [document.storageKey] : []));
   }
 
   async softDeleteDocument(ownerId: string, id: string): Promise<boolean> {

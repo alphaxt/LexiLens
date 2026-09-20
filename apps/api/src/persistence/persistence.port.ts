@@ -44,6 +44,12 @@ export interface PersistencePort {
     status: ProcessingStatus,
     analysis: Audit | null,
   ): Promise<DocumentRecord | undefined>;
+  updateUploadMetadata(
+    ownerId: string,
+    id: string,
+    metadata: Pick<DocumentRecord, 'detectedMime' | 'scanResult' | 'rejectionCode'>,
+  ): Promise<DocumentRecord | undefined>;
+  listStorageKeys(ownerId: string): Promise<string[]>;
   softDeleteDocument(ownerId: string, id: string): Promise<boolean>;
 
   getOrCreateAccount(principal: PersistencePrincipal): Promise<Account>;
