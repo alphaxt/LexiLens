@@ -9,8 +9,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@1e60f620b9541d5c3230b5738c54ab5b4a5c8e55
         with:
           node-version: 22
           cache: pnpm
@@ -19,11 +19,11 @@ jobs:
       - run: corepack pnpm format:check
       - run: corepack pnpm --filter @lexilens/database db:validate
       - run: corepack pnpm security:policy:test
+      - run: corepack pnpm security:image-digests
       - name: Dependency security release policy
         run: corepack pnpm security:audit
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Repository secret policy
+        run: corepack pnpm security:secrets
       - run: corepack pnpm lint
       - run: corepack pnpm typecheck
       - run: corepack pnpm test
@@ -32,14 +32,18 @@ jobs:
     needs: verify
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      NODE_IMAGE: ${{ vars.APPROVED_NODE_IMAGE_DIGEST }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Build final runtime images
-        run: docker build --pull --tag lexilens-api:ci apps/api && docker build --pull --tag lexilens-web:ci apps/web
-      - name: Require an installed image scanner and block high or critical findings
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Refuse release build without approved immutable base image
+        run: test -n "$NODE_IMAGE" && echo "$NODE_IMAGE" | grep -Eq '@sha256:[0-9a-f]{64}$'
+      - name: Build final runtime images from repository root
+        run: docker build --pull --build-arg NODE_IMAGE="$NODE_IMAGE" --tag lexilens-api:ci -f apps/api/Dockerfile . && docker build --pull --build-arg NODE_IMAGE="$NODE_IMAGE" --tag lexilens-web:ci -f apps/web/Dockerfile .
+      - name: Require an installed approved image scanner and block high or critical findings
         run: |
           if ! command -v docker >/dev/null || ! docker scout version >/dev/null 2>&1; then
-            echo 'A pinned, approved image scanner must be installed in the release runner; refusing release.' >&2
+            echo 'An approved image scanner must be installed in the release runner; refusing release.' >&2
             exit 1
           fi
           docker scout cves --only-severity high,critical --exit-code lexilens-api:ci

@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 # Build context: repository root (docker build -f apps/api/Dockerfile .)
-FROM node:22.14.0-bookworm-slim AS build
+# Required at build time: an approved immutable Node base image, e.g. node@sha256:<64 hex>.
+ARG NODE_IMAGE
+FROM ${NODE_IMAGE} AS build
 WORKDIR /workspace
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -15,7 +17,7 @@ COPY apps ./apps
 COPY packages ./packages
 RUN pnpm --filter @lexilens/api... build
 
-FROM node:22.14.0-bookworm-slim AS runtime
+FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 RUN groupadd --system --gid 10001 lexilens && useradd --system --uid 10001 --gid lexilens --home-dir /app --shell /usr/sbin/nologin lexilens

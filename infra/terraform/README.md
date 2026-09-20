@@ -1,7 +1,11 @@
-# Terraform staged-deployment template
+# Guarded private-workload Terraform template
 
-This directory is a **template, not a deployment**. It intentionally has no backend, account identifiers, domains, real images, credentials, or provisioned resources. `terraform.tfvars` and state are ignored. No `init`, `plan`, or `apply` was run for this change.
+This directory is an **unprovisioned private-workload template**. It intentionally has no backend configuration and this repository does not run `init`, `plan`, or `apply`. Every managed resource depends on `acknowledge_deployment=true`; leaving it `false` prevents a reviewed deployment from proceeding.
 
-The template requires Terraform `>= 1.10.5, < 1.17.0` and AWS provider `5.82.2`, defines encrypted private quarantine storage, KMS, private RDS PostgreSQL with managed password, SQS/DLQ, an ECS/Fargate API task/service skeleton, logging, and least-privilege task-policy examples. It assumes an approved VPC and private subnets. CloudFront/WAF/ALB are deliberate TODOs because their origins, TLS certificate, and domain names must be user-approved.
+It creates a KMS-encrypted quarantine bucket with TLS-only access, private encrypted RDS, extraction SQS and DLQ with a DLQ alarm, ECS API/scanner services, separate execution/API/worker/scanner/EventBridge roles, task secret injection, and an EventBridge-triggered one-shot maintenance worker. The worker command is `node apps/api/dist/worker.js`; it creates no HTTP listener and reconciles retention cleanup and expired extraction leases once.
 
-Before a user-approved deployment: create reviewed remote state with locking, replace TODOs, create separate execution/task roles, scope security-group ingress, inject runtime values via Secrets Manager, define web/ALB/CloudFront/WAF resources, and run peer review plus an approved `terraform plan`. The API needs database migrations completed before `/health` becomes ready. A standalone worker is not in this repository; deploy a separately reviewed worker/queue consumer before using the extraction queue.
+## Explicit boundary
+
+This template deliberately does **not** configure an ALB, TLS listener/certificate attachment, WAF association, public DNS, CDN, or web delivery. It exposes no API security-group ingress, so the API is unreachable until an operator-approved private ingress/edge module is added and reviewed. `scanner_endpoint` is an operator-provided approved HTTPS facade endpoint; the scanner task is a workload placement/configuration template, not automatic scanner routing or service discovery. See `docs/scanner-deployment.md`.
+
+Before an approved deployment, configure remote state and locking; connect ingress, TLS, WAF, DNS, and web delivery in a separately reviewed module; verify private subnet egress, RDS backup/restore and alert delivery; populate an ignored `terraform.tfvars` with immutable image digests; review the resulting plan; and explicitly acknowledge deployment. No real credentials belong in example files or source control.

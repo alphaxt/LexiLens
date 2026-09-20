@@ -147,5 +147,25 @@ const environmentSchema = z
   });
 export type AppConfig = z.infer<typeof environmentSchema>;
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
-  return environmentSchema.parse(environment);
+  return environmentSchema.parse(withDatabaseUrl(environment));
+}
+
+function withDatabaseUrl(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (environment.DATABASE_URL) return environment;
+  const { DATABASE_HOST, DATABASE_PORT, DATABASE_USERNAME, DATABASE_PASSWORD, DATABASE_NAME } =
+    environment;
+  if (
+    !DATABASE_HOST ||
+    !DATABASE_PORT ||
+    !DATABASE_USERNAME ||
+    !DATABASE_PASSWORD ||
+    !DATABASE_NAME ||
+    !/^[a-zA-Z0-9.-]+$/.test(DATABASE_HOST) ||
+    !/^\d+$/.test(DATABASE_PORT)
+  )
+    return environment;
+  return {
+    ...environment,
+    DATABASE_URL: `postgresql://${encodeURIComponent(DATABASE_USERNAME)}:${encodeURIComponent(DATABASE_PASSWORD)}@${DATABASE_HOST}:${DATABASE_PORT}/${encodeURIComponent(DATABASE_NAME)}?schema=public`,
+  };
 }

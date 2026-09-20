@@ -138,3 +138,22 @@ describe('OCR provider configuration boundary', () => {
     ).toThrow('OCR provider endpoint must use HTTPS');
   });
 });
+
+describe('RDS managed-secret configuration', () => {
+  it('constructs a PostgreSQL URL from separately injected RDS secret fields', () => {
+    expect(
+      loadConfig({
+        ...productionOidc,
+        DATABASE_URL: undefined,
+        DATABASE_HOST: 'database.internal',
+        DATABASE_PORT: '5432',
+        DATABASE_USERNAME: 'lexilens_app',
+        DATABASE_PASSWORD: 'p@ss word',
+        DATABASE_NAME: 'lexilens',
+      }),
+    ).toMatchObject({
+      DATABASE_URL:
+        'postgresql://lexilens_app:p%40ss%20word@database.internal:5432/lexilens?schema=public',
+    });
+  });
+});

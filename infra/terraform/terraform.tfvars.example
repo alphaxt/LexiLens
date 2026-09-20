@@ -1,10 +1,20 @@
-# Copy to terraform.tfvars only after user approval; terraform.tfvars is ignored.
-aws_region          = "us-east-1"
-stage               = "staging"
-vpc_id              = "vpc-REPLACE_AFTER_NETWORK_REVIEW"
-private_subnet_ids  = ["subnet-REPLACE_1", "subnet-REPLACE_2"]
-database_subnet_ids = ["subnet-REPLACE_1", "subnet-REPLACE_2"]
-container_image     = "registry.example/lexilens-api@sha256:REPLACE_WITH_64_HEX_CHARACTERS"
-# api_certificate_arn = "arn:aws:acm:REGION:ACCOUNT:certificate/REPLACE"
-# alert_email         = "on-call@example.invalid"
-tags = { Environment = "staging", Owner = "platform" }
+# Copy only into ignored terraform.tfvars after approved change control.
+# This template refuses deployment until acknowledge_deployment=true.
+acknowledge_deployment = false
+aws_region             = "us-east-1"
+stage                  = "staging"
+vpc_id                 = "vpc-0123456789abcdef0"
+private_subnet_ids     = ["subnet-0123456789abcdef0", "subnet-0123456789abcdef1"]
+database_subnet_ids    = ["subnet-0123456789abcdef2", "subnet-0123456789abcdef3"]
+api_image              = "registry.example/lexilens-api@sha256:REPLACE_WITH_64_HEX_CHARACTERS"
+scanner_image          = "registry.example/approved-scanner-facade@sha256:REPLACE_WITH_64_HEX_CHARACTERS"
+scanner_endpoint       = "https://scanner.internal.example.invalid/scan"
+scanner_version        = "approved-version"
+oidc_issuer_url        = "https://issuer.example.invalid/"
+oidc_jwks_uri         = "https://issuer.example.invalid/.well-known/jwks.json"
+oidc_audience          = "https://api.example.invalid"
+alert_email            = "on-call@example.invalid"
+tags = {
+  Environment = "staging"
+  Owner       = "platform"
+}

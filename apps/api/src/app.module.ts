@@ -13,6 +13,7 @@ import { OCR_PROVIDER_PORT } from './extraction/ocr-provider.port';
 import { ExtractionService } from './extraction.service';
 import { ExtractionWorkerService } from './extraction-worker.service';
 import { CleanupReconcilerService } from './cleanup-reconciler.service';
+import { MaintenanceWorkerService } from './maintenance-worker.service';
 import { MemoryPersistenceAdapter } from './persistence/memory-persistence.adapter';
 import { PERSISTENCE_PORT } from './persistence/persistence.port';
 import { PrismaPersistenceAdapter } from './persistence/prisma-persistence.adapter';
@@ -61,6 +62,7 @@ const config = loadConfig();
     ExtractionService,
     ExtractionWorkerService,
     CleanupReconcilerService,
+    MaintenanceWorkerService,
     AccountService,
     IdentityService,
     IdentityGuard,

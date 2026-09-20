@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 # Build context: repository root (docker build -f apps/web/Dockerfile .)
-FROM node:22.14.0-bookworm-slim AS build
+# Required at build time: an approved immutable Node base image, e.g. node@sha256:<64 hex>.
+ARG NODE_IMAGE
+FROM ${NODE_IMAGE} AS build
 WORKDIR /workspace
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -31,7 +33,7 @@ ENV NEXT_PUBLIC_OIDC_AUDIENCE=$NEXT_PUBLIC_OIDC_AUDIENCE
 ENV NEXT_PUBLIC_OIDC_SCOPE=$NEXT_PUBLIC_OIDC_SCOPE
 RUN pnpm --filter @lexilens/web... build
 
-FROM node:22.14.0-bookworm-slim AS runtime
+FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
