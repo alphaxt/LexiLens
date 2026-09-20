@@ -13,6 +13,7 @@ import { DOCUMENT_SCANNER_PORT } from './scanner/document-scanner.port';
 import { MemoryQuarantineStorageAdapter } from './storage/memory-quarantine-storage.adapter';
 import { QUARANTINE_STORAGE_PORT } from './storage/quarantine-storage.port';
 import { S3QuarantineStorageAdapter } from './storage/s3-quarantine-storage.adapter';
+import { ExtractionService } from './extraction.service';
 import { UploadService } from './uploads.service';
 
 const config = loadConfig();
@@ -43,6 +44,7 @@ const config = loadConfig();
     { provide: DOCUMENT_SCANNER_PORT, useClass: MagicDocumentScannerAdapter },
     DocumentService,
     UploadService,
+    ExtractionService,
     AccountService,
     IdentityService,
     IdentityGuard,

@@ -32,3 +32,9 @@ Production startup fails closed unless PostgreSQL/OIDC and `STORAGE_MODE=s3`, pr
 ## Production boundaries
 
 The demo deliberately uses text-only ingestion and in-memory storage. Production deployment must replace the storage and scan adapters with private object storage, malware scanning, native PDF/OCR adapters, background queues, authenticated OIDC identity, and the approved compliance controls described in the architecture plan.
+
+## Extraction worker boundary
+
+Uploads are intentionally asynchronous: a clean upload stops at `READY_FOR_EXTRACTION`. An authenticated, owner-scoped `POST /documents/:id/extraction` request makes one atomic lease claim, reads its opaque private object only after that claim, and returns status metadata only. It never returns extracted source, artifacts, storage keys, or signed download URLs. Local/test supports strict UTF-8 `text/plain` extraction with byte/character bounds and document-global page offsets. OCR is disabled and images/PDFs fail with a structured safe status; PDF parsing remains isolated until a reviewed, exactly pinned parser is introduced.
+
+Production must supply a real queue or scheduler to invoke this endpoint (no cron worker is bundled), a sandboxed native parser, an approved OCR provider, malware scanning, and lease/retry reconciliation. Provider selection must fail closed if incomplete; this repository deliberately contains no fake external provider or credentials.

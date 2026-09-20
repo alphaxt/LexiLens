@@ -14,6 +14,9 @@ export class AccountService {
     @Inject(QUARANTINE_STORAGE_PORT)
     private readonly storage: QuarantineStoragePort = {
       put: async () => undefined,
+      read: async () => {
+        throw new Error('No private storage configured.');
+      },
       delete: async () => undefined,
     },
   ) {}

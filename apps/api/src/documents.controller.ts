@@ -6,6 +6,7 @@ import {
   Get,
   HttpCode,
   Inject,
+  NotFoundException,
   Param,
   Post,
   Req,
@@ -24,6 +25,7 @@ import { RequireScopeGuard } from './auth/require-scope.guard';
 import { type AuthPrincipal, CurrentPrincipal, IdentityGuard } from './auth/identity';
 import { loadConfig } from './config';
 import { DocumentService } from './documents.service';
+import { ExtractionService } from './extraction.service';
 import { UploadService } from './uploads.service';
 import { PERSISTENCE_PORT, type PersistencePort } from './persistence/persistence.port';
 
@@ -73,6 +75,7 @@ export class DocumentsController {
   constructor(
     private readonly documents: DocumentService,
     private readonly uploads: UploadService,
+    private readonly extraction: ExtractionService,
   ) {}
 
   @Get()
@@ -124,6 +127,27 @@ export class DocumentsController {
   @Delete(':id')
   async delete(@CurrentPrincipal() principal: AuthPrincipal, @Param('id') id: string) {
     return this.documents.delete(principal.ownerId, id);
+  }
+
+  @Post(':id/extraction')
+  @UseGuards(RequireScopeGuard)
+  @ApiOperation({ summary: 'Request safe extraction processing for one owned, clean upload' })
+  async extract(@CurrentPrincipal() principal: AuthPrincipal, @Param('id') id: string) {
+    const document = await this.extraction.process(principal.ownerId, id);
+    if (!document)
+      throw new NotFoundException('Document is not ready for extraction or is unavailable.');
+    const {
+      ownerId: _owner,
+      sourceText: _text,
+      contentHash: _hash,
+      storageKey: _key,
+      extractionArtifact: _artifact,
+      extractionFailure: _failure,
+      extractionLeaseId: _lease,
+      extractionLeaseExpiresAt: _expiry,
+      ...metadata
+    } = document;
+    return metadata;
   }
 
   @Post(':id/drafts')

@@ -28,6 +28,11 @@ function quarantined(owner: string, sourceText: string): DocumentRecord {
     scanResult: null,
     rejectionCode: null,
     storageKey: null,
+    extractionArtifact: null,
+    extractionFailure: null,
+    extractionAttempts: 0,
+    extractionLeaseId: null,
+    extractionLeaseExpiresAt: null,
   };
 }
 

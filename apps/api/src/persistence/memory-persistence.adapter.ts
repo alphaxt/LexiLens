@@ -86,6 +86,87 @@ export class MemoryPersistenceAdapter implements PersistencePort {
     return clone(updated);
   }
 
+  async claimReadyForExtraction(ownerId: string, id: string, leaseMs: number) {
+    const current = this.documents.get(id);
+    if (
+      !current ||
+      current.ownerId !== ownerId ||
+      current.status !== 'READY_FOR_EXTRACTION' ||
+      current.scanResult !== 'CLEAN'
+    )
+      return undefined;
+    const leaseId = randomUUID();
+    const updated = {
+      ...current,
+      status: 'PROCESSING' as const,
+      extractionAttempts: current.extractionAttempts + 1,
+      extractionLeaseId: leaseId,
+      extractionLeaseExpiresAt: new Date(Date.now() + leaseMs).toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.documents.set(id, updated);
+    return { document: clone(updated), leaseId };
+  }
+
+  async completeExtraction(
+    ownerId: string,
+    id: string,
+    leaseId: string,
+    artifact: import('@lexilens/contracts').ExtractionArtifact,
+    analysis: Audit,
+  ): Promise<DocumentRecord | undefined> {
+    const current = this.documents.get(id);
+    if (
+      !current ||
+      current.ownerId !== ownerId ||
+      current.status !== 'PROCESSING' ||
+      current.extractionLeaseId !== leaseId
+    )
+      return undefined;
+    const updated = {
+      ...current,
+      sourceText: artifact.canonicalText,
+      extractionArtifact: clone(artifact),
+      extractionFailure: null,
+      extractionLeaseId: null,
+      extractionLeaseExpiresAt: null,
+      status: 'COMPLETED' as const,
+      analysis: clone(analysis),
+      updatedAt: new Date().toISOString(),
+    };
+    this.documents.set(id, updated);
+    return clone(updated);
+  }
+
+  async failExtraction(
+    ownerId: string,
+    id: string,
+    leaseId: string,
+    artifact: import('@lexilens/contracts').ExtractionArtifact | null,
+    extractionFailure: import('@lexilens/contracts').ExtractionFailure,
+  ): Promise<DocumentRecord | undefined> {
+    const current = this.documents.get(id);
+    if (
+      !current ||
+      current.ownerId !== ownerId ||
+      current.status !== 'PROCESSING' ||
+      current.extractionLeaseId !== leaseId
+    )
+      return undefined;
+    const updated = {
+      ...current,
+      extractionArtifact: artifact ? clone(artifact) : null,
+      extractionFailure: clone(extractionFailure),
+      extractionLeaseId: null,
+      extractionLeaseExpiresAt: null,
+      status: 'FAILED' as const,
+      analysis: null,
+      updatedAt: new Date().toISOString(),
+    };
+    this.documents.set(id, updated);
+    return clone(updated);
+  }
+
   async listStorageKeys(ownerId: string): Promise<string[]> {
     return [...this.documents.values()]
       .filter((document) => document.ownerId === ownerId && document.storageKey)

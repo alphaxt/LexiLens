@@ -21,7 +21,7 @@ describe('HealthController readiness', () => {
       service: 'lexilens-api',
       persistence: {
         mode: 'memory',
-        schemaVersion: '20260921000000_add_document_upload_quarantine',
+        schemaVersion: '20260922000000_add_extraction_worker',
       },
     });
   });

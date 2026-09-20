@@ -1,6 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable, type OnModuleDestroy } from '@nestjs/common';
 import {
   auditSchema,
+  extractionArtifactSchema,
+  extractionFailureSchema,
   type Account,
   type Audit,
   type DocumentRecord,
@@ -57,6 +60,17 @@ function toDocument(document: DatabaseDocument): DocumentRecord {
     scanResult: document.scanResult as DocumentRecord['scanResult'],
     rejectionCode: document.rejectionCode as DocumentRecord['rejectionCode'],
     storageKey: document.storageKey,
+    extractionArtifact:
+      document.extractionArtifact === null
+        ? null
+        : extractionArtifactSchema.parse(document.extractionArtifact),
+    extractionFailure:
+      document.extractionFailure === null
+        ? null
+        : extractionFailureSchema.parse(document.extractionFailure),
+    extractionAttempts: document.extractionAttempts,
+    extractionLeaseId: document.extractionLeaseId,
+    extractionLeaseExpiresAt: document.extractionLeaseExpiresAt?.toISOString() ?? null,
   };
 }
 
@@ -154,6 +168,11 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
           byteSize: record.byteSize,
           scanResult: record.scanResult,
           rejectionCode: record.rejectionCode,
+          extractionArtifact: Prisma.DbNull,
+          extractionFailure: Prisma.DbNull,
+          extractionAttempts: record.extractionAttempts,
+          extractionLeaseId: null,
+          extractionLeaseExpiresAt: null,
           createdAt: new Date(record.createdAt),
           updatedAt: new Date(record.updatedAt),
         },
@@ -197,6 +216,66 @@ export class PrismaPersistenceAdapter implements PersistencePort, OnModuleDestro
     const updated = await this.client.document.updateMany({
       where: { id, ownerId, status: { not: 'DELETED' } },
       data: metadata,
+    });
+    return updated.count ? this.findDocument(ownerId, id) : undefined;
+  }
+
+  async claimReadyForExtraction(ownerId: string, id: string, leaseMs: number) {
+    const leaseId = randomUUID();
+    const updated = await this.client.document.updateMany({
+      where: { id, ownerId, status: 'READY_FOR_EXTRACTION', scanResult: 'CLEAN' },
+      data: {
+        status: 'PROCESSING',
+        extractionAttempts: { increment: 1 },
+        extractionLeaseId: leaseId,
+        extractionLeaseExpiresAt: new Date(Date.now() + leaseMs),
+      },
+    });
+    if (!updated.count) return undefined;
+    const document = await this.findDocument(ownerId, id);
+    return document ? { document, leaseId } : undefined;
+  }
+
+  async completeExtraction(
+    ownerId: string,
+    id: string,
+    leaseId: string,
+    artifact: import('@lexilens/contracts').ExtractionArtifact,
+    analysis: Audit,
+  ): Promise<DocumentRecord | undefined> {
+    const updated = await this.client.document.updateMany({
+      where: { id, ownerId, status: 'PROCESSING', extractionLeaseId: leaseId },
+      data: {
+        status: 'COMPLETED',
+        sourceText: artifact.canonicalText,
+        extractionArtifact: artifact as unknown as Prisma.InputJsonValue,
+        extractionFailure: Prisma.DbNull,
+        extractionLeaseId: null,
+        extractionLeaseExpiresAt: null,
+        analysis: analysis as unknown as Prisma.InputJsonValue,
+      },
+    });
+    return updated.count ? this.findDocument(ownerId, id) : undefined;
+  }
+
+  async failExtraction(
+    ownerId: string,
+    id: string,
+    leaseId: string,
+    artifact: import('@lexilens/contracts').ExtractionArtifact | null,
+    failure: import('@lexilens/contracts').ExtractionFailure,
+  ): Promise<DocumentRecord | undefined> {
+    const updated = await this.client.document.updateMany({
+      where: { id, ownerId, status: 'PROCESSING', extractionLeaseId: leaseId },
+      data: {
+        status: 'FAILED',
+        extractionArtifact:
+          artifact === null ? Prisma.DbNull : (artifact as unknown as Prisma.InputJsonValue),
+        extractionFailure: failure as unknown as Prisma.InputJsonValue,
+        extractionLeaseId: null,
+        extractionLeaseExpiresAt: null,
+        analysis: Prisma.DbNull,
+      },
     });
     return updated.count ? this.findDocument(ownerId, id) : undefined;
   }

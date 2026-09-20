@@ -72,6 +72,11 @@ model Document {
   byteSize          Int?
   scanResult        String?        @db.VarChar(20)
   rejectionCode     String?        @db.VarChar(80)
+  extractionArtifact Json?
+  extractionFailure Json?
+  extractionAttempts Int           @default(0)
+  extractionLeaseId String?        @db.Uuid
+  extractionLeaseExpiresAt DateTime?
   analysis          Json?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
